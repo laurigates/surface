@@ -1,5 +1,9 @@
 use clap::{Parser, Subcommand};
 
+mod workspace;
+
+use workspace::Workspace;
+
 const SCOPE_DISCLAIMER: &str = "\
 Surface checks that the code a claim points at is unchanged since it was last verified.
 It does NOT verify that the documented invariant still holds across the system: a change
@@ -29,11 +33,29 @@ enum Command {
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    let name = match cli.command {
+    match run(&cli.command) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(command: &Command) -> anyhow::Result<()> {
+    let cwd = std::env::current_dir()?;
+    let ws = Workspace::discover(&cwd)?;
+    let hubs = ws.hub_paths()?;
+
+    let name = match command {
         Command::Lint => "lint",
         Command::Check => "check",
         Command::Verify => "verify",
     };
-    eprintln!("surf {name}: not implemented yet");
-    std::process::ExitCode::FAILURE
+    println!(
+        "surf {name}: discovered workspace at {} ({} hub(s)); command not implemented yet",
+        ws.root.display(),
+        hubs.len()
+    );
+    Ok(())
 }

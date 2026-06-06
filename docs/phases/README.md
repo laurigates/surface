@@ -15,7 +15,7 @@ line as you go.
 | 0 | [`00-toolchain-scaffold.md`](./00-toolchain-scaffold.md) | done |
 | 1 | [`01-anchor-resolution.md`](./01-anchor-resolution.md) | done |
 | 2 | [`02-canonical-hashing.md`](./02-canonical-hashing.md) | done |
-| 3 | [`03-hub-format.md`](./03-hub-format.md) | not started |
+| 3 | [`03-hub-format.md`](./03-hub-format.md) | done |
 | 4 | [`04-surf-lint.md`](./04-surf-lint.md) | not started |
 | 5 | [`05-surf-check.md`](./05-surf-check.md) | not started |
 | 6 | [`06-surf-verify.md`](./06-surf-verify.md) | not started |

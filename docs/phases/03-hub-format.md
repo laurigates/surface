@@ -7,7 +7,15 @@
 
 **Depends on:** Phase 0. (Independent of 1/2 — can proceed in parallel.)
 
-**Status:** not started
+**Status:** done
+
+> Pure parsers in `surf-core`: `hub.rs` (`parse_hub` → frontmatter + body; `at:` is
+> scalar-or-list via untagged enum; `hash` is `Option`, unset until `verify`; `covers`
+> rejected via `deny_unknown_fields`; `refs` parsed but inert) and `config.rs`
+> (`parse_config`, default glob `hubs/*.md`). Filesystem **discovery** lives in
+> `surf-cli/src/workspace.rs` (`Workspace::discover` walks up for `surf.toml`; `hub_paths`
+> globs) to keep `surf-core` I/O-free. Real `surf.toml` + `hubs/core-engine.md` (dogfood)
+> at repo root. Commands now discover the workspace before reporting not-implemented.
 
 ## Steps
 
