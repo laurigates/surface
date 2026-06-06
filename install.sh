@@ -17,7 +17,10 @@ case "$os" in
   Darwin)
     case "$arch" in
       arm64 | aarch64) target="aarch64-apple-darwin" ;;
-      x86_64) target="x86_64-apple-darwin" ;;
+      x86_64)
+        echo "surf: no prebuilt binary for Intel macOS. Install from source instead:" >&2
+        echo "  cargo install --git https://github.com/Connorrmcd6/surface surf-cli" >&2
+        exit 1 ;;
       *) echo "surf: unsupported macOS arch: $arch" >&2; exit 1 ;;
     esac ;;
   Linux)

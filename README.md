@@ -118,8 +118,8 @@ cargo install --path surf-cli      # puts `surf` on your PATH (~/.cargo/bin)
 # or: cargo build --release        # binary at target/release/surf
 ```
 
-**Consume the gate (coming with `v0.1.0`)** — most repos never install a binary; they run
-the Action or the pre-commit hook.
+**Consume the gate** — most repos never install a binary; they run the Action or the
+pre-commit hook.
 
 GitHub Action — `.github/workflows/surface.yml`:
 
@@ -149,8 +149,8 @@ curl:
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrmcd6/surface/main/install.sh | sh
 ```
 
-> The Action, pre-commit, and `curl | sh` paths activate once the repo is public and a
-> `v0.1.0` release is published. Until then, build from source.
+> Prebuilt binaries are published for **macOS (Apple Silicon)** and **Linux (x86_64)**. On
+> Intel macOS, Windows, or other architectures, build from source with `cargo install`.
 
 ## Quickstart
 
