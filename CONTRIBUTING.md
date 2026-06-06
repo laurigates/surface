@@ -5,6 +5,10 @@
 Rust, via [rustup](https://rustup.rs). The toolchain is pinned in `rust-toolchain.toml`, so
 `rustup` installs the right version automatically the first time you build.
 
+Optionally install [pre-commit](https://pre-commit.com) and run `pre-commit install` once.
+This wires up the local `surf lint`/`surf check` hooks (`.pre-commit-config.yaml`) so docs ↔
+code drift is caught at commit time, the same gate CI runs.
+
 ## Build & test
 
 ```sh

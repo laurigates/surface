@@ -1,0 +1,17 @@
+# Surface dogfoods its own gate. Runs via cargo so no installed `surf` is required.
+# Enable once per clone with: pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: surf-lint
+        name: surf lint (anchors resolve)
+        entry: cargo run -q -p surf-cli -- lint
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: surf-check
+        name: surf check (docs ↔ code drift gate)
+        entry: cargo run -q -p surf-cli -- check
+        language: system
+        pass_filenames: false
+        always_run: true
