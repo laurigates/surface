@@ -303,7 +303,11 @@ fn ts_def_name(node: Node, src: &[u8]) -> Option<String> {
             let value = node.child_by_field_name("value")?;
             matches!(
                 value.kind(),
-                "arrow_function" | "function" | "function_expression" | "generator_function"
+                "arrow_function"
+                    | "function"
+                    | "function_expression"
+                    | "generator_function"
+                    | "call_expression"
             )
             .then(|| field_text(node, "name", src).map(str::to_string))
             .flatten()

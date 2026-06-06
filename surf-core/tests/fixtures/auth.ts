@@ -26,3 +26,11 @@ export const refresh = (token: string): string => {
   }
   return inner(token);
 };
+
+export const getResults = cache(
+  unstable_cache(async (id: string): Promise<string> => {
+    return id.trim();
+  }),
+);
+
+export const loginSchema = z.object({ id: 1 });

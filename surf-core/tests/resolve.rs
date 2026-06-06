@@ -53,6 +53,21 @@ fn ts_nested_function_in_arrow_const() {
 }
 
 #[test]
+fn ts_const_bound_wrapped_function_resolves() {
+    // `export const getResults = cache(unstable_cache(async () => ...))` — a const whose
+    // initializer is a call expression must resolve like a function declaration.
+    let s = span(TS, Lang::TypeScript, "auth.ts > getResults");
+    assert!(snippet(TS, s).contains("id.trim()"));
+}
+
+#[test]
+fn ts_const_bound_call_initializer_resolves() {
+    // The same path covers `export const X = z.object(...)` (Zod schemas, server actions).
+    let s = span(TS, Lang::TypeScript, "auth.ts > loginSchema");
+    assert!(snippet(TS, s).contains("z.object"));
+}
+
+#[test]
 fn ts_not_found_is_distinct() {
     match err(TS, Lang::TypeScript, "auth.ts > doesNotExist") {
         ResolveError::NotFound { segment } => assert_eq!(segment, "doesNotExist"),
