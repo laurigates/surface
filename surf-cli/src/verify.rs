@@ -15,12 +15,39 @@ use surf_core::{
 enum Plan {
     Hash(String),
     Follow { new_at: String, new_hash: String },
+    Unchanged,
     Skip(String),
 }
 
+#[derive(Default)]
+struct Summary {
+    stamped: usize,
+    unchanged: usize,
+    errors: Vec<String>,
+}
+
 pub fn run(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<ExitCode> {
-    let mut stamped = 0usize;
-    let mut skipped: Vec<String> = Vec::new();
+    let summary = verify_all(ws, target, follow)?;
+
+    for e in &summary.errors {
+        println!("error {e}");
+    }
+    println!(
+        "surf verify: stamped {} anchor(s), {} skipped, {} error(s).",
+        summary.stamped,
+        summary.unchanged,
+        summary.errors.len()
+    );
+
+    Ok(if summary.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Summary> {
+    let mut summary = Summary::default();
     let mut matched_any = false;
 
     for hub_path in ws.hub_paths()? {
@@ -50,9 +77,11 @@ pub fn run(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<ExitCod
                 Plan::Hash(new_hash) => match set_anchor_hash(&text, idx, &new_hash) {
                     Some(updated) => {
                         text = updated;
-                        stamped += 1;
+                        summary.stamped += 1;
                     }
-                    None => skipped.push(format!("{label} (could not write hash)")),
+                    None => summary
+                        .errors
+                        .push(format!("{label} (could not write hash)")),
                 },
                 Plan::Follow { new_at, new_hash } => {
                     match set_anchor_at(&text, idx, &new_at)
@@ -60,13 +89,16 @@ pub fn run(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<ExitCod
                     {
                         Some(updated) => {
                             text = updated;
-                            stamped += 1;
+                            summary.stamped += 1;
                             println!("followed {label} → {new_at}");
                         }
-                        None => skipped.push(format!("{label} (could not rewrite at:)")),
+                        None => summary
+                            .errors
+                            .push(format!("{label} (could not rewrite at:)")),
                     }
                 }
-                Plan::Skip(reason) => skipped.push(format!("{label} ({reason})")),
+                Plan::Unchanged => summary.unchanged += 1,
+                Plan::Skip(reason) => summary.errors.push(format!("{label} ({reason})")),
             }
         }
 
@@ -83,19 +115,7 @@ pub fn run(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<ExitCod
         }
     }
 
-    for s in &skipped {
-        println!("skipped {s}");
-    }
-    println!(
-        "surf verify: stamped {stamped} anchor(s), {} skipped.",
-        skipped.len()
-    );
-
-    Ok(if skipped.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    })
+    Ok(summary)
 }
 
 fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
@@ -114,7 +134,14 @@ fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
     }
 
     match failure {
-        None => Plan::Hash(combine_site_hashes(&site_hashes)),
+        None => {
+            let combined = combine_site_hashes(&site_hashes);
+            if claim.hash.as_deref() == Some(combined.as_str()) {
+                Plan::Unchanged
+            } else {
+                Plan::Hash(combined)
+            }
+        }
         Some(reason) if !follow => Plan::Skip(reason),
         Some(_) => plan_follow(ws, claim),
     }
@@ -204,8 +231,11 @@ mod tests {
             Some(expected.as_str())
         );
 
-        // Second verify is a no-op: byte-identical.
-        run(&ws, None, false).unwrap();
+        // Second verify is a no-op: byte-identical, and reported as skipped not stamped.
+        let summary = verify_all(&ws, None, false).unwrap();
+        assert_eq!(summary.stamped, 0);
+        assert_eq!(summary.unchanged, 1);
+        assert!(summary.errors.is_empty());
         assert_eq!(fs::read_to_string(root.join("hubs/a.md")).unwrap(), after);
     }
 
