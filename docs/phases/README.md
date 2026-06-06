@@ -27,8 +27,12 @@ line as you go.
 - **Rust install:** `rustup` via `curl | sh`, toolchain pinned in `rust-toolchain.toml`.
 
 ## Post-MVP additions
+- **`surf init`** (`surf-cli/src/init.rs`) — bootstraps a workspace (writes `surf.toml` +
+  `hubs/`); the one command that runs before discovery since it creates the marker.
 - **`surf new <name>`** (`surf-cli/src/new.rs`) — scaffolds a lint-clean hub under the
-  configured hubs dir. A small authoring-ergonomics extra beyond the 8 phases (lowers the §8
+  configured hubs dir.
+
+  Both are small authoring-ergonomics extras beyond the 8 phases (lower the §8
   claim-maintenance cost); not in the original proposal scope.
 
 ## Scope guardrails — NOT in the MVP

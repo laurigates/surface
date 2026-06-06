@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod check;
+mod init;
 mod lint;
 mod new;
 mod verify;
@@ -28,6 +29,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Bootstrap a workspace: write surf.toml and create the hubs directory.
+    Init,
     /// Scaffold a new, empty hub under the configured hubs directory.
     New {
         /// Hub name; creates `<hubs-dir>/<name>.md`.
@@ -67,9 +70,15 @@ fn main() -> std::process::ExitCode {
 fn run() -> anyhow::Result<std::process::ExitCode> {
     let cli = Cli::parse();
     let cwd = std::env::current_dir()?;
-    let ws = Workspace::discover(&cwd)?;
 
+    // `init` creates the surf.toml marker, so it runs before (and instead of) discovery.
+    if matches!(cli.command, Command::Init) {
+        return init::run(&cwd);
+    }
+
+    let ws = Workspace::discover(&cwd)?;
     match cli.command {
+        Command::Init => unreachable!("handled before discovery"),
         Command::New { name } => new::run(&ws, &name),
         Command::Lint => lint::run(&ws),
         Command::Check { format, base } => check::run(&ws, format, &base),

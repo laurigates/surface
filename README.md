@@ -154,9 +154,11 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrm
 
 ## Quickstart
 
-Scaffold a hub — a markdown file whose frontmatter anchors sentences to code:
+Set up the workspace, then scaffold a hub — a markdown file whose frontmatter anchors
+sentences to code:
 
 ```sh
+surf init              # writes surf.toml + creates hubs/
 surf new auth          # creates hubs/auth.md
 ```
 
@@ -231,6 +233,7 @@ surf check --format json
 
 ## Commands
 
+- `surf init` — bootstrap a workspace: write `surf.toml` and create the hubs directory (idempotent).
 - `surf new <name>` — scaffold a new empty hub under your hubs directory.
 - `surf lint` — validate frontmatter and that every `at:` resolves to exactly one symbol. Warns on a renamed symbol (suggests `verify --follow`); blocks on ambiguous or vanished anchors.
 - `surf check [--format human|json] [--base <ref>]` — the gate. AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any divergence. `--base` (default `HEAD`) is the git ref used to recover the advisory `old_code` / `magnitude` fields.
