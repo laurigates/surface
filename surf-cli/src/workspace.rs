@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use surf_core::config::{parse_config, Config, CONFIG_FILE};
+use surf_core::{parse_anchor, Anchor, Lang};
 
 pub struct Workspace {
     pub root: PathBuf,
@@ -46,6 +47,41 @@ impl Workspace {
         out.dedup();
         Ok(out)
     }
+}
+
+/// Why a single `at:` site couldn't be loaded for hashing/resolution. Distinct variants so
+/// `check`/`verify` can report the precise cause rather than a generic "does not resolve".
+#[derive(Debug)]
+pub enum SiteError {
+    BadAnchor(String),
+    UnsupportedType(String),
+    Unreadable(String),
+}
+
+impl std::fmt::Display for SiteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SiteError::BadAnchor(e) => write!(f, "invalid anchor: {e}"),
+            SiteError::UnsupportedType(file) => write!(f, "unsupported file type: {file}"),
+            SiteError::Unreadable(file) => {
+                write!(f, "cannot read `{file}` (file moved or removed?)")
+            }
+        }
+    }
+}
+
+/// Parse an `at:` site, detect its language, and read its source — reporting the precise
+/// failure. (Symbol resolution within the source is a separate, later step.)
+pub fn read_site(
+    ws: &Workspace,
+    site: &str,
+) -> std::result::Result<(String, Lang, Anchor), SiteError> {
+    let anchor = parse_anchor(site).map_err(|e| SiteError::BadAnchor(e.to_string()))?;
+    let lang = Lang::from_path(&anchor.file)
+        .ok_or_else(|| SiteError::UnsupportedType(anchor.file.clone()))?;
+    let source = std::fs::read_to_string(ws.root.join(&anchor.file))
+        .map_err(|_| SiteError::Unreadable(anchor.file.clone()))?;
+    Ok((source, lang, anchor))
 }
 
 #[cfg(test)]

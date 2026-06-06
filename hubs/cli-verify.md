@@ -6,7 +6,7 @@ anchors:
       under --follow, it re-points a renamed single-segment anchor via find_renamed and
       re-hashes; otherwise it skips with a reason. It never edits prose, only the hash/at line.
     at: surf-cli/src/verify.rs > plan_claim
-    hash: 6a3131f27a77
+    hash: 00d066610ee4
 refs: []
 ---
 

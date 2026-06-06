@@ -4,12 +4,12 @@
 //! step (§6.4). Writes are surgical (only the touched line changes) and skipped entirely
 //! when nothing changed, so a no-op verify leaves the file byte-identical.
 
-use crate::workspace::Workspace;
+use crate::workspace::{read_site, Workspace};
 use anyhow::{Context, Result};
 use std::process::ExitCode;
 use surf_core::{
     combine_site_hashes, find_renamed, hash_anchor, parse_anchor, parse_hub, set_anchor_at,
-    set_anchor_hash, Lang,
+    set_anchor_hash,
 };
 
 enum Plan {
@@ -102,24 +102,22 @@ fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
     let sites = claim.at.sites();
 
     let mut site_hashes = Vec::with_capacity(sites.len());
-    let mut all_resolved = true;
+    let mut failure: Option<String> = None;
     for site in sites {
-        match hash_site(ws, site) {
-            Some(h) => site_hashes.push(h),
-            None => {
-                all_resolved = false;
+        match site_hash(ws, site) {
+            Ok(h) => site_hashes.push(h),
+            Err(reason) => {
+                failure = Some(reason);
                 break;
             }
         }
     }
-    if all_resolved {
-        return Plan::Hash(combine_site_hashes(&site_hashes));
-    }
 
-    if !follow {
-        return Plan::Skip("does not resolve; run `surf lint`".into());
+    match failure {
+        None => Plan::Hash(combine_site_hashes(&site_hashes)),
+        Some(reason) if !follow => Plan::Skip(reason),
+        Some(_) => plan_follow(ws, claim),
     }
-    plan_follow(ws, claim)
 }
 
 fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
@@ -130,18 +128,13 @@ fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
     let Some(stored) = claim.hash.as_deref() else {
         return Plan::Skip("--follow needs a stored hash to match against".into());
     };
-    let Ok(anchor) = parse_anchor(&sites[0]) else {
-        return Plan::Skip("invalid anchor".into());
+    let (source, lang, anchor) = match read_site(ws, &sites[0]) {
+        Ok(parts) => parts,
+        Err(e) => return Plan::Skip(e.to_string()),
     };
     if anchor.segments.len() != 1 {
         return Plan::Skip("--follow supports single-segment anchors only".into());
     }
-    let Some(lang) = Lang::from_path(&anchor.file) else {
-        return Plan::Skip("unsupported file type".into());
-    };
-    let Ok(source) = std::fs::read_to_string(ws.root.join(&anchor.file)) else {
-        return Plan::Skip("cannot read source file".into());
-    };
 
     match find_renamed(&source, lang, stored) {
         Ok(Some(new_name)) => {
@@ -158,11 +151,9 @@ fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
     }
 }
 
-fn hash_site(ws: &Workspace, site: &str) -> Option<String> {
-    let anchor = parse_anchor(site).ok()?;
-    let lang = Lang::from_path(&anchor.file)?;
-    let source = std::fs::read_to_string(ws.root.join(&anchor.file)).ok()?;
-    hash_anchor(&source, lang, &anchor).ok()
+fn site_hash(ws: &Workspace, site: &str) -> std::result::Result<String, String> {
+    let (source, lang, anchor) = read_site(ws, site).map_err(|e| e.to_string())?;
+    hash_anchor(&source, lang, &anchor).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -170,6 +161,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    use surf_core::Lang;
 
     fn write(root: &Path, rel: &str, content: &str) {
         let p = root.join(rel);

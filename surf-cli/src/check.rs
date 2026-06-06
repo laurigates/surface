@@ -4,14 +4,12 @@
 //! deterministic and needs no git. `old_code`/`magnitude` are recovered best-effort from the
 //! previous source via `git show <base>:<path>` and are advisory only.
 
-use crate::workspace::Workspace;
+use crate::workspace::{read_site, Workspace};
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use std::path::Path;
 use std::process::{Command, ExitCode};
-use surf_core::{
-    diff_magnitude, hash_anchor, parse_anchor, parse_hub, resolve, Divergence, DivergenceKind, Lang,
-};
+use surf_core::{diff_magnitude, hash_anchor, parse_hub, resolve, Divergence, DivergenceKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Format {
@@ -71,7 +69,7 @@ fn check_claim(
     let at_display = sites.join("  +  ");
     let single = sites.len() == 1;
 
-    let mk = |kind, old_hash, new_hash, old_code, new_code, magnitude| {
+    let mk = |kind, old_hash, new_hash, old_code, new_code, magnitude, detail| {
         Some(Divergence {
             hub: hub.to_string(),
             claim: prose.clone(),
@@ -83,32 +81,32 @@ fn check_claim(
             new_code,
             prose: prose.clone(),
             magnitude,
+            detail,
         })
+    };
+    let unresolvable = |detail: String| {
+        mk(
+            DivergenceKind::Unresolvable,
+            claim.hash.clone(),
+            None,
+            None,
+            None,
+            None,
+            Some(detail),
+        )
     };
 
     // Resolve and hash every site; the claim's hash is the combination (§6.3).
     let mut site_hashes = Vec::with_capacity(sites.len());
     let mut first_new_code = None;
     for site in sites {
-        let Some((current, lang, anchor)) = read_site(ws, site) else {
-            return mk(
-                DivergenceKind::Unresolvable,
-                claim.hash.clone(),
-                None,
-                None,
-                None,
-                None,
-            );
+        let (current, lang, anchor) = match read_site(ws, site) {
+            Ok(parts) => parts,
+            Err(e) => return unresolvable(e.to_string()),
         };
-        let Ok(span) = resolve(&current, lang, &anchor) else {
-            return mk(
-                DivergenceKind::Unresolvable,
-                claim.hash.clone(),
-                None,
-                None,
-                None,
-                None,
-            );
+        let span = match resolve(&current, lang, &anchor) {
+            Ok(span) => span,
+            Err(e) => return unresolvable(e.to_string()),
         };
         if single {
             first_new_code = current
@@ -127,6 +125,7 @@ fn check_claim(
             None,
             first_new_code,
             None,
+            None,
         ),
         Some(stored) if *stored == new_hash => None, // clean
         Some(stored) => {
@@ -143,16 +142,10 @@ fn check_claim(
                 old_code,
                 first_new_code,
                 magnitude,
+                None,
             )
         }
     }
-}
-
-fn read_site(ws: &Workspace, site: &str) -> Option<(String, Lang, surf_core::Anchor)> {
-    let anchor = parse_anchor(site).ok()?;
-    let lang = Lang::from_path(&anchor.file)?;
-    let current = std::fs::read_to_string(ws.root.join(&anchor.file)).ok()?;
-    Some((current, lang, anchor))
 }
 
 fn enrich_from_git(
@@ -160,7 +153,7 @@ fn enrich_from_git(
     base: &str,
     site: &str,
 ) -> (Option<String>, Option<surf_core::Magnitude>) {
-    let Some((current, lang, anchor)) = read_site(ws, site) else {
+    let Ok((current, lang, anchor)) = read_site(ws, site) else {
         return (None, None);
     };
     let Some(old_source) = git_show(&ws.root, base, &anchor.file) else {
@@ -195,6 +188,9 @@ fn print_human(divergences: &[Divergence]) {
             DivergenceKind::Unresolvable => ("UNRESOLVED", Some("run `surf lint`")),
         };
         println!("{tag}  {} :: {}", d.hub, d.at);
+        if let Some(detail) = &d.detail {
+            println!("    {detail}");
+        }
         if let (Some(old), Some(new)) = (&d.old_hash, &d.new_hash) {
             let mag = d
                 .magnitude
@@ -220,6 +216,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::PathBuf;
+    use surf_core::{parse_anchor, Lang};
 
     fn write(root: &Path, rel: &str, content: &str) {
         let p = root.join(rel);
@@ -355,6 +352,27 @@ mod tests {
         assert!(d.old_code.as_deref().unwrap().contains("a + b"));
         assert!(d.new_code.as_deref().unwrap().contains("a - b"));
         assert!(d.magnitude.is_some());
+    }
+
+    #[test]
+    fn unsupported_file_type_is_unresolvable_with_detail() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(root, "surf.toml", "");
+        write(root, "schema.sql", "CREATE TABLE users (id int);\n");
+        write(
+            root,
+            "hubs/a.md",
+            "---\nsummary: x\nanchors:\n  - claim: c\n    at: schema.sql > users\n---\n",
+        );
+
+        let d = check_workspace(&ws_at(root.to_path_buf()), "HEAD").unwrap();
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].kind, DivergenceKind::Unresolvable);
+        assert_eq!(
+            d[0].detail.as_deref(),
+            Some("unsupported file type: schema.sql")
+        );
     }
 
     #[test]
