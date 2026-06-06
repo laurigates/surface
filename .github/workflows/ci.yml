@@ -21,3 +21,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --all
+      - name: Surface self-check (dogfood)
+        run: |
+          cargo run -q -p surf-cli -- lint
+          cargo run -q -p surf-cli -- check

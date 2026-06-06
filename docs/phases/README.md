@@ -19,7 +19,7 @@ line as you go.
 | 4 | [`04-surf-lint.md`](./04-surf-lint.md) | done |
 | 5 | [`05-surf-check.md`](./05-surf-check.md) | done |
 | 6 | [`06-surf-verify.md`](./06-surf-verify.md) | done |
-| 7 | [`07-distribution.md`](./07-distribution.md) | not started |
+| 7 | [`07-distribution.md`](./07-distribution.md) | done |
 
 ## Locked decisions (see OVERVIEW for rationale)
 - **Grammars:** TypeScript + Rust (Surface dogfoods its own Rust source).

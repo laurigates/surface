@@ -1,0 +1,18 @@
+# Surface pre-commit hooks. Requires `surf` on PATH (see install.sh).
+# Usage in a consuming repo's .pre-commit-config.yaml:
+#   - repo: https://github.com/Connorrmcd6/surface
+#     rev: v0.1.0
+#     hooks:
+#       - id: surf-check
+- id: surf-check
+  name: surf check (docs ↔ code drift gate)
+  entry: surf check
+  language: system
+  pass_filenames: false
+  always_run: true
+- id: surf-lint
+  name: surf lint (anchors resolve)
+  entry: surf lint
+  language: system
+  pass_filenames: false
+  always_run: true

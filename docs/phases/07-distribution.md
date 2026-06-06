@@ -7,7 +7,19 @@ consume (most *consume the Action*, they don't "install").
 
 **Depends on:** Phase 5.
 
-**Status:** not started
+**Status:** done
+
+> `release.yml` builds native per-target binaries (aarch64+x86_64 macOS, x86_64 linux-gnu)
+> on tag `v*` and attaches `surf-<target>.tar.gz` to the GitHub release. `install.sh` detects
+> (os, arch) and fetches the matching asset (maps aarch64-linux too, errors clearly if an
+> asset is missing). `action.yml` is a composite action that installs then runs `surf`, with
+> an explicit "do NOT fetch-depth: 0" note. `.pre-commit-hooks.yaml` exposes `surf-check` /
+> `surf-lint` (language: system). CI now self-checks (dogfood): `surf lint && surf check`.
+>
+> **Deferred (per §10, not yet needed):** aarch64-linux build + musl static target; npm/pip/
+> brew channels. **Not locally verifiable:** the Action/release path needs a tag push +
+> network — the CI self-check exercises the same `surf check` gate on our own PRs instead.
+> To cut a release: bump the workspace version and push a `v*` tag.
 
 ## Steps
 

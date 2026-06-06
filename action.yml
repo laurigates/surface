@@ -1,0 +1,34 @@
+name: Surface
+description: Run the Surface gate (surf check) to block merges when docs drift from code.
+branding:
+  icon: git-pull-request
+  color: purple
+
+# Consumers: a plain `actions/checkout@v4` is enough — do NOT set `fetch-depth: 0`.
+# The verdict only needs the working tree; git history is used solely for the advisory
+# old_code/magnitude enrichment in the JSON report.
+
+inputs:
+  args:
+    description: Arguments passed to surf (e.g. "check" or "check --format json").
+    default: check
+  version:
+    description: Release tag to install (e.g. v0.1.0), or "latest".
+    default: latest
+  working-directory:
+    description: Directory to run surf in (must contain or sit under a surf.toml).
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Install surf
+      shell: bash
+      env:
+        SURF_VERSION: ${{ inputs.version }}
+        SURF_INSTALL_DIR: ${{ runner.temp }}/surf-bin
+      run: curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrmcd6/surface/main/install.sh | sh
+    - name: Run surf
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ runner.temp }}/surf-bin/surf ${{ inputs.args }}
