@@ -18,6 +18,7 @@
 use crate::anchor::Anchor;
 use crate::lang::{Family, Lang};
 use crate::resolve::{parse_tree, resolve_node, ResolveError};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -29,7 +30,8 @@ pub fn hash_anchor(source: &str, lang: Lang, anchor: &Anchor) -> Result<String, 
     Ok(hash_tokens(&anchor_tokens(source, lang, anchor)?))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Magnitude {
     Small,
     Medium,

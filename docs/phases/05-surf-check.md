@@ -8,7 +8,16 @@ Emit `--format json` — the seam every future plugin attaches to (§5).
 
 **Depends on:** Phases 2, 3.
 
-**Status:** not started
+**Status:** done
+
+> Report structs in `surf-core/src/report.rs` (`Divergence`, `DivergenceKind` =
+> Changed/Unverified/Unresolvable). Gate logic in `surf-cli/src/check.rs`: resolve → hash →
+> compare to stored. Verdict is deterministic (stored hash vs computed); `old_code` +
+> `magnitude` are best-effort enrichment via `git show <base>:<path>` (default `HEAD`,
+> `--base` to override) and never affect pass/fail. `--format human|json`. Exit non-zero on
+> any divergence. A claim with no stored hash → `Unverified` block (drives the verify loop);
+> an anchor that no longer resolves → `Unresolvable` block (run lint). Per-symbol verified:
+> editing an un-anchored function in the same file stays green.
 
 ## Steps
 

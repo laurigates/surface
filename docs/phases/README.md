@@ -17,7 +17,7 @@ line as you go.
 | 2 | [`02-canonical-hashing.md`](./02-canonical-hashing.md) | done |
 | 3 | [`03-hub-format.md`](./03-hub-format.md) | done |
 | 4 | [`04-surf-lint.md`](./04-surf-lint.md) | done |
-| 5 | [`05-surf-check.md`](./05-surf-check.md) | not started |
+| 5 | [`05-surf-check.md`](./05-surf-check.md) | done |
 | 6 | [`06-surf-verify.md`](./06-surf-verify.md) | not started |
 | 7 | [`07-distribution.md`](./07-distribution.md) | not started |
 

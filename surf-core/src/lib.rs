@@ -6,6 +6,7 @@ pub mod hash;
 pub mod hub;
 pub mod lang;
 pub mod rename;
+pub mod report;
 pub mod resolve;
 
 pub use anchor::{parse_anchor, Anchor, AnchorParseError, Segment};
@@ -14,6 +15,7 @@ pub use hash::{diff_magnitude, hash_anchor, Magnitude};
 pub use hub::{parse_hub, At, Claim, Frontmatter, Hub, HubError};
 pub use lang::Lang;
 pub use rename::find_renamed;
+pub use report::{Divergence, DivergenceKind};
 pub use resolve::{resolve, ResolveError, Span};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

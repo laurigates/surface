@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 
+mod check;
 mod lint;
 mod workspace;
 
+use check::Format;
 use workspace::Workspace;
 
 const SCOPE_DISCLAIMER: &str = "\
@@ -27,7 +29,14 @@ enum Command {
     /// Validate hub frontmatter and that every anchor resolves to exactly one symbol.
     Lint,
     /// The gate: hash each anchored span and block on any documented span that diverged.
-    Check,
+    Check {
+        /// Output format for the divergence report.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
+        /// Git ref to recover previous code from for advisory old_code/magnitude.
+        #[arg(long, default_value = "HEAD")]
+        base: String,
+    },
     /// Re-hash an anchor after a human confirms the prose still holds.
     Verify,
 }
@@ -49,10 +58,7 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
 
     match cli.command {
         Command::Lint => lint::run(&ws),
-        Command::Check => {
-            println!("surf check: not implemented yet");
-            Ok(std::process::ExitCode::SUCCESS)
-        }
+        Command::Check { format, base } => check::run(&ws, format, &base),
         Command::Verify => {
             println!("surf verify: not implemented yet");
             Ok(std::process::ExitCode::SUCCESS)
