@@ -12,5 +12,7 @@ serde_yaml.workspace = true
 sha2 = "0.11.0"
 toml = "1.1.2"
 tree-sitter = "0.26.9"
+tree-sitter-go = "0.25.0"
+tree-sitter-python = "0.25.0"
 tree-sitter-rust = "0.24.2"
 tree-sitter-typescript = "0.23.2"

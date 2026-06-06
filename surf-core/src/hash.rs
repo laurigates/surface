@@ -135,6 +135,11 @@ fn is_identifier(kind: &str, family: Family) -> bool {
                 | "shorthand_property_identifier_pattern"
                 | "private_property_identifier"
         ),
+        Family::Python => kind == "identifier",
+        Family::Go => matches!(
+            kind,
+            "identifier" | "type_identifier" | "field_identifier" | "package_identifier"
+        ),
     }
 }
 

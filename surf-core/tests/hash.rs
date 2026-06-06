@@ -148,6 +148,50 @@ fn rust_loud_on_changed_primitive_type() {
     );
 }
 
+// --- Python ----------------------------------------------------------------
+
+const PY_BASE: &str = "def add(a, b):\n    return a + b\n";
+
+#[test]
+fn python_quiet_on_reformat_comment_and_rename() {
+    let variant = "def add(x,   y):\n    # sum\n    return x  +  y\n";
+    assert_eq!(
+        h(PY_BASE, Lang::Python, "f.py > add"),
+        h(variant, Lang::Python, "f.py > add")
+    );
+}
+
+#[test]
+fn python_loud_on_operator_flip() {
+    let flipped = "def add(a, b):\n    return a - b\n";
+    assert_ne!(
+        h(PY_BASE, Lang::Python, "f.py > add"),
+        h(flipped, Lang::Python, "f.py > add")
+    );
+}
+
+// --- Go --------------------------------------------------------------------
+
+const GO_BASE: &str = "package p\nfunc add(a int, b int) int {\n\treturn a + b\n}\n";
+
+#[test]
+fn go_quiet_on_reformat_and_rename() {
+    let variant = "package p\nfunc add(x int, y int) int {\n\t// sum\n\treturn x + y\n}\n";
+    assert_eq!(
+        h(GO_BASE, Lang::Go, "f.go > add"),
+        h(variant, Lang::Go, "f.go > add")
+    );
+}
+
+#[test]
+fn go_loud_on_operator_flip() {
+    let flipped = "package p\nfunc add(a int, b int) int {\n\treturn a - b\n}\n";
+    assert_ne!(
+        h(GO_BASE, Lang::Go, "f.go > add"),
+        h(flipped, Lang::Go, "f.go > add")
+    );
+}
+
 // --- Magnitude is advisory and plausible -----------------------------------
 
 #[test]

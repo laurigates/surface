@@ -2,6 +2,8 @@ use surf_core::{parse_anchor, resolve, Lang, ResolveError, Span};
 
 const TS: &str = include_str!("fixtures/auth.ts");
 const RS: &str = include_str!("fixtures/auth.rs");
+const PY: &str = include_str!("fixtures/auth.py");
+const GO: &str = include_str!("fixtures/auth.go");
 
 fn span(src: &str, lang: Lang, anchor: &str) -> Span {
     let a = parse_anchor(anchor).unwrap();
@@ -97,6 +99,81 @@ fn rust_type_alone_is_ambiguous() {
         ResolveError::Ambiguous { count, .. } => assert_eq!(count, 2),
         other => panic!("expected Ambiguous, got {other:?}"),
     }
+}
+
+// --- Python ---------------------------------------------------------------
+
+#[test]
+fn python_method_disambiguated_by_class() {
+    let a = span(PY, Lang::Python, "auth.py > TokenService > rotate");
+    assert!(snippet(PY, a).contains("token + \"!\""));
+    let b = span(PY, Lang::Python, "auth.py > OtherService > rotate");
+    assert!(snippet(PY, b).contains("token + \"?\""));
+    assert_ne!((a.start_byte, a.end_byte), (b.start_byte, b.end_byte));
+}
+
+#[test]
+fn python_top_level_ambiguous_then_positional() {
+    match err(PY, Lang::Python, "auth.py > rotate") {
+        ResolveError::Ambiguous { count, .. } => assert_eq!(count, 2),
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+    let second = span(PY, Lang::Python, "auth.py > rotate @2");
+    assert!(snippet(PY, second).contains("force"));
+}
+
+#[test]
+fn python_nested_function() {
+    let s = span(PY, Lang::Python, "auth.py > refresh > inner");
+    assert!(snippet(PY, s).contains("t.strip()"));
+}
+
+#[test]
+fn python_resolves_through_decorator() {
+    let s = span(PY, Lang::Python, "auth.py > cached");
+    assert!(snippet(PY, s).contains("return 1"));
+}
+
+#[test]
+fn python_not_found_is_distinct() {
+    assert!(matches!(
+        err(PY, Lang::Python, "auth.py > nope"),
+        ResolveError::NotFound { .. }
+    ));
+}
+
+// --- Go ---------------------------------------------------------------------
+
+#[test]
+fn go_method_resolved_by_receiver() {
+    // Both types declare Rotate; the receiver disambiguates.
+    let a = span(GO, Lang::Go, "auth.go > TokenService > Rotate");
+    assert!(snippet(GO, a).contains("token + \"!\""));
+    let b = span(GO, Lang::Go, "auth.go > OtherService > Rotate");
+    assert!(snippet(GO, b).contains("token + \"?\""));
+    assert_ne!((a.start_byte, a.end_byte), (b.start_byte, b.end_byte));
+}
+
+#[test]
+fn go_top_level_func_excludes_methods() {
+    // A free `Rotate` and two methods named Rotate exist; the single-segment path
+    // resolves only the free function.
+    let s = span(GO, Lang::Go, "auth.go > Rotate");
+    assert!(snippet(GO, s).starts_with("func Rotate(token string)"));
+}
+
+#[test]
+fn go_type_resolves_uniquely() {
+    let s = span(GO, Lang::Go, "auth.go > TokenService");
+    assert!(snippet(GO, s).contains("secret string"));
+}
+
+#[test]
+fn go_missing_method_is_not_found() {
+    assert!(matches!(
+        err(GO, Lang::Go, "auth.go > TokenService > Missing"),
+        ResolveError::NotFound { .. }
+    ));
 }
 
 #[test]

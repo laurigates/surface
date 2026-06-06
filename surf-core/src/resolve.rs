@@ -6,7 +6,7 @@
 //! (which share a name) both get descended — the path `Type > method` resolves uniquely
 //! even though `Type` alone is ambiguous.
 
-use crate::anchor::Anchor;
+use crate::anchor::{Anchor, Segment};
 use crate::lang::{Family, Lang};
 use tree_sitter::{Node, Parser, Tree};
 
@@ -64,6 +64,12 @@ pub(crate) fn resolve_node<'a>(
     family: Family,
     anchor: &Anchor,
 ) -> Result<Node<'a>, ResolveError> {
+    // Go symbols are flat (no nested declarations) and methods attach to a type by receiver,
+    // not by nesting — so it gets a dedicated resolver rather than the generic scope walk.
+    if family == Family::Go {
+        return resolve_go(root, src, anchor);
+    }
+
     let mut scopes = vec![root];
 
     let last = anchor.segments.len() - 1;
@@ -96,6 +102,98 @@ pub(crate) fn resolve_node<'a>(
     }
 
     unreachable!("an anchor always has at least one segment")
+}
+
+/// Apply a segment's positional/uniqueness rule to a candidate list.
+fn pick<'a>(candidates: Vec<Node<'a>>, seg: &Segment) -> Result<Node<'a>, ResolveError> {
+    let selected: Vec<Node> = match seg.index {
+        Some(k) => candidates.get(k - 1).copied().into_iter().collect(),
+        None => candidates,
+    };
+    match selected.len() {
+        0 => Err(ResolveError::NotFound {
+            segment: seg.name.clone(),
+        }),
+        1 => Ok(selected[0]),
+        n => Err(ResolveError::Ambiguous {
+            segment: seg.name.clone(),
+            count: n,
+        }),
+    }
+}
+
+/// Go resolver. `file.go > Fn|Type` for top-level declarations; `file.go > Type > Method`
+/// for methods, matched by receiver type (Go methods are flat, not nested in the type).
+fn resolve_go<'a>(root: Node<'a>, src: &[u8], anchor: &Anchor) -> Result<Node<'a>, ResolveError> {
+    let segs = &anchor.segments;
+    match segs.as_slice() {
+        [one] => pick(go_top_level(root, src, &one.name), one),
+        [ty, method] => {
+            let candidates = go_methods(root, src, &ty.name)
+                .into_iter()
+                .filter(|(name, _)| *name == method.name)
+                .map(|(_, node)| node)
+                .collect();
+            pick(candidates, method)
+        }
+        _ => Err(ResolveError::NotFound {
+            segment: segs.last().expect("anchor has >= 1 segment").name.clone(),
+        }),
+    }
+}
+
+fn go_top_level<'a>(node: Node<'a>, src: &[u8], name: &str) -> Vec<Node<'a>> {
+    let mut out = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "function_declaration" | "type_spec" | "const_spec" | "var_spec" => {
+                if field_text(child, "name", src) == Some(name) {
+                    out.push(child);
+                }
+            }
+            "type_declaration" | "const_declaration" | "var_declaration" => {
+                out.extend(go_top_level(child, src, name));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn go_methods<'a>(root: Node<'a>, src: &[u8], type_name: &str) -> Vec<(String, Node<'a>)> {
+    let mut out = Vec::new();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        if child.kind() == "method_declaration" && go_receiver_type(child, src) == Some(type_name) {
+            if let Some(name) = field_text(child, "name", src) {
+                out.push((name.to_string(), child));
+            }
+        }
+    }
+    out
+}
+
+fn go_receiver_type<'a>(method: Node, src: &'a [u8]) -> Option<&'a str> {
+    let receiver = method.child_by_field_name("receiver")?;
+    let mut cursor = receiver.walk();
+    let params: Vec<Node> = receiver.named_children(&mut cursor).collect();
+    let param = params
+        .into_iter()
+        .find(|p| p.kind() == "parameter_declaration")?;
+    go_type_name(param.child_by_field_name("type")?, src)
+}
+
+fn go_type_name<'a>(ty: Node, src: &'a [u8]) -> Option<&'a str> {
+    match ty.kind() {
+        "type_identifier" => ty.utf8_text(src).ok(),
+        "pointer_type" | "generic_type" => {
+            let mut cursor = ty.walk();
+            let children: Vec<Node> = ty.named_children(&mut cursor).collect();
+            children.into_iter().find_map(|c| go_type_name(c, src))
+        }
+        _ => None,
+    }
 }
 
 fn span_of(node: Node) -> Span {
@@ -154,6 +252,26 @@ fn def_name(node: Node, src: &[u8], family: Family) -> Option<String> {
     match family {
         Family::Rust => rust_def_name(node, src),
         Family::TypeScript => ts_def_name(node, src),
+        Family::Python => python_def_name(node, src),
+        Family::Go => go_def_name(node, src),
+    }
+}
+
+fn python_def_name(node: Node, src: &[u8]) -> Option<String> {
+    match node.kind() {
+        "function_definition" | "class_definition" => {
+            field_text(node, "name", src).map(str::to_string)
+        }
+        _ => None,
+    }
+}
+
+fn go_def_name(node: Node, src: &[u8]) -> Option<String> {
+    match node.kind() {
+        "function_declaration" | "method_declaration" | "type_spec" | "const_spec" | "var_spec" => {
+            field_text(node, "name", src).map(str::to_string)
+        }
+        _ => None,
     }
 }
 
@@ -206,15 +324,19 @@ fn is_transparent(kind: &str, family: Family) -> bool {
                 | "lexical_declaration"
                 | "variable_declaration"
         ),
+        Family::Python => matches!(kind, "module" | "block" | "decorated_definition"),
+        Family::Go => matches!(
+            kind,
+            "source_file" | "block" | "type_declaration" | "const_declaration" | "var_declaration"
+        ),
     }
 }
 
 fn scope_of(node: Node, family: Family) -> Node {
     match family {
-        Family::Rust => node.child_by_field_name("body").unwrap_or(node),
-        Family::TypeScript => match node.kind() {
-            "variable_declarator" => node.child_by_field_name("value").unwrap_or(node),
-            _ => node.child_by_field_name("body").unwrap_or(node),
-        },
+        Family::TypeScript if node.kind() == "variable_declarator" => {
+            node.child_by_field_name("value").unwrap_or(node)
+        }
+        _ => node.child_by_field_name("body").unwrap_or(node),
     }
 }

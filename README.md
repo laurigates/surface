@@ -251,9 +251,9 @@ hubs = ["hubs/*.md"]
 Point the glob wherever your hubs live: keep them central (`hubs/*.md`) or co-locate them
 with code (e.g. `["**/_hub.md"]`).
 
-**Languages:** TypeScript (`.ts`, `.tsx`, `.mts`, `.cts`) and Rust (`.rs`). Grammars are
-compiled into the binary and version-pinned, so a hash computed on your laptop and in CI
-always agree.
+**Languages:** TypeScript (`.ts`, `.tsx`, `.mts`, `.cts`), Rust (`.rs`), Python (`.py`,
+`.pyi`), and Go (`.go`). Grammars are compiled into the binary and version-pinned, so a hash
+computed on your laptop and in CI always agree.
 
 **CI:** the gate hashes your working tree and compares it to the hash committed in the
 frontmatter. It needs the checkout, **not** the history — do **not** set `fetch-depth: 0`.
@@ -299,8 +299,9 @@ is what's enforced in CI.
 **Does it slow CI down?** No. It parses and hashes a handful of spans — I/O-bound, not
 compute-bound. No model, no network, no API key.
 
-**What languages?** TypeScript and Rust today, via bundled tree-sitter grammars. More are a
-build-time addition to the binary, never a runtime dependency.
+**What languages?** TypeScript, Rust, Python, and Go today, via bundled tree-sitter grammars
+(JavaScript via the TS grammar is the next planned add). More are a build-time addition to the
+binary, never a runtime dependency.
 
 **What does a green check actually promise?** That nothing you anchored has changed since it
 was last verified — *not* that your docs are true, and nothing at all about code you didn't
