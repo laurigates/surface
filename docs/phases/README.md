@@ -26,6 +26,11 @@ line as you go.
 - **Layout:** Cargo workspace — `surf-core` (pure, no I/O) + `surf-cli` (clap binary).
 - **Rust install:** `rustup` via `curl | sh`, toolchain pinned in `rust-toolchain.toml`.
 
+## Post-MVP additions
+- **`surf new <name>`** (`surf-cli/src/new.rs`) — scaffolds a lint-clean hub under the
+  configured hubs dir. A small authoring-ergonomics extra beyond the 8 phases (lowers the §8
+  claim-maintenance cost); not in the original proposal scope.
+
 ## Scope guardrails — NOT in the MVP
 - No `refs` resolver, `surf index`, MCP service, reviewer plugin, or `covers` field.
 - No similarity-score gating. Boolean AST hash only; tree-edit magnitude is advisory JSON.

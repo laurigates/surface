@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod check;
 mod lint;
+mod new;
 mod verify;
 mod workspace;
 
@@ -27,6 +28,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Scaffold a new, empty hub under the configured hubs directory.
+    New {
+        /// Hub name; creates `<hubs-dir>/<name>.md`.
+        name: String,
+    },
     /// Validate hub frontmatter and that every anchor resolves to exactly one symbol.
     Lint,
     /// The gate: hash each anchored span and block on any documented span that diverged.
@@ -64,6 +70,7 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
     let ws = Workspace::discover(&cwd)?;
 
     match cli.command {
+        Command::New { name } => new::run(&ws, &name),
         Command::Lint => lint::run(&ws),
         Command::Check { format, base } => check::run(&ws, format, &base),
         Command::Verify { target, follow } => verify::run(&ws, target.as_deref(), follow),
