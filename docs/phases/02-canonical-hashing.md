@@ -8,7 +8,15 @@ exact sensitivity profile a correctness gate needs.
 
 **Depends on:** Phase 1.
 
-**Status:** not started
+**Status:** done
+
+> `surf-core/src/hash.rs`. Canonical token stream: comments dropped, whitespace absent
+> (not in tree), identifiers **alpha-renamed** to positional placeholders (`#0`, `#1`, …) so
+> a consistent rename is quiet but a *swap* of two names is loud; operators, keywords,
+> punctuation, and literal values kept verbatim. Hash = SHA-256 truncated to 12 hex chars.
+> `Magnitude` (Small/Medium/Large via token Levenshtein) is advisory only — there is no code
+> path from it to a verdict (§6.2). `resolve.rs` refactored to expose `parse_tree` /
+> `resolve_node` so the hasher reuses resolution.
 
 ## Steps
 

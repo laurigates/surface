@@ -8,7 +8,7 @@
 
 use crate::anchor::Anchor;
 use crate::lang::{Family, Lang};
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Node, Parser, Tree};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
@@ -45,15 +45,25 @@ impl std::fmt::Display for ResolveError {
 impl std::error::Error for ResolveError {}
 
 pub fn resolve(source: &str, lang: Lang, anchor: &Anchor) -> Result<Span, ResolveError> {
+    let tree = parse_tree(source, lang).ok_or(ResolveError::Parse)?;
+    let node = resolve_node(tree.root_node(), source.as_bytes(), lang.family(), anchor)?;
+    Ok(span_of(node))
+}
+
+pub(crate) fn parse_tree(source: &str, lang: Lang) -> Option<Tree> {
     let mut parser = Parser::new();
     parser
         .set_language(&lang.tree_sitter_language())
         .expect("bundled grammar is always a valid language");
-    let tree = parser.parse(source, None).ok_or(ResolveError::Parse)?;
-    let src = source.as_bytes();
-    let family = lang.family();
+    parser.parse(source, None)
+}
 
-    let root = tree.root_node();
+pub(crate) fn resolve_node<'a>(
+    root: Node<'a>,
+    src: &[u8],
+    family: Family,
+    anchor: &Anchor,
+) -> Result<Node<'a>, ResolveError> {
     let mut scopes = vec![root];
 
     let last = anchor.segments.len() - 1;
@@ -74,7 +84,7 @@ pub fn resolve(source: &str, lang: Lang, anchor: &Anchor) -> Result<Span, Resolv
                     segment: seg.name.clone(),
                 })
             }
-            1 if i == last => return Ok(span_of(selected[0])),
+            1 if i == last => return Ok(selected[0]),
             n if i == last => {
                 return Err(ResolveError::Ambiguous {
                     segment: seg.name.clone(),
