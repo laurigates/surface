@@ -126,6 +126,26 @@ fn collect_matching<'a>(
     }
 }
 
+/// Every symbol definition in the subtree, at any depth, as (name, node). Used for
+/// hash-based rename detection — find a current symbol whose canonical hash matches a
+/// claim's stored hash even though its name no longer matches the anchor.
+pub(crate) fn collect_all_defs<'a>(
+    node: Node<'a>,
+    src: &[u8],
+    family: Family,
+    out: &mut Vec<(String, Node<'a>)>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if let Some(name) = def_name(child, src, family) {
+            out.push((name, child));
+            collect_all_defs(scope_of(child, family), src, family, out);
+        } else {
+            collect_all_defs(child, src, family, out);
+        }
+    }
+}
+
 fn field_text<'a>(node: Node, field: &str, src: &'a [u8]) -> Option<&'a str> {
     node.child_by_field_name(field)?.utf8_text(src).ok()
 }

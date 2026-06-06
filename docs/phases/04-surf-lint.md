@@ -7,7 +7,16 @@ renames are handled per §6.4. Composes Phases 1–3.
 
 **Depends on:** Phases 1, 3.
 
-**Status:** not started
+**Status:** done
+
+> `surf-cli/src/lint.rs` (+ `main.rs` wiring). `lint_workspace` produces `Finding`s
+> (Block/Warn); `run` prints them and sets the exit code (block → failure, warn-only → 0).
+> **Rename detection is hash-based, not git-based** (deviation from the doc's git+similarity
+> sketch): `surf-core/src/rename.rs::find_renamed` walks every definition and matches the
+> claim's stored hash — because the canonical hash alpha-renames identifiers, a renamed-but-
+> unchanged symbol still matches. Deterministic, no network, no git. A *file* rename makes
+> the path unreadable and surfaces as a Block ("cannot read … (file moved or removed?)").
+> Needs `collect_all_defs` (resolve.rs) + `hash_node` (hash.rs).
 
 ## Steps
 

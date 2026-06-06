@@ -56,6 +56,10 @@ fn anchor_tokens(source: &str, lang: Lang, anchor: &Anchor) -> Result<Vec<String
     Ok(canonical_tokens(node, src, family))
 }
 
+pub(crate) fn hash_node(node: Node, src: &[u8], family: Family) -> String {
+    hash_tokens(&canonical_tokens(node, src, family))
+}
+
 fn canonical_tokens(node: Node, src: &[u8], family: Family) -> Vec<String> {
     let mut out = Vec::new();
     let mut idents: HashMap<String, usize> = HashMap::new();

@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod lint;
 mod workspace;
 
 use workspace::Workspace;
@@ -32,9 +33,8 @@ enum Command {
 }
 
 fn main() -> std::process::ExitCode {
-    let cli = Cli::parse();
-    match run(&cli.command) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+    match run() {
+        Ok(code) => code,
         Err(e) => {
             eprintln!("error: {e:#}");
             std::process::ExitCode::FAILURE
@@ -42,20 +42,20 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn run(command: &Command) -> anyhow::Result<()> {
+fn run() -> anyhow::Result<std::process::ExitCode> {
+    let cli = Cli::parse();
     let cwd = std::env::current_dir()?;
     let ws = Workspace::discover(&cwd)?;
-    let hubs = ws.hub_paths()?;
 
-    let name = match command {
-        Command::Lint => "lint",
-        Command::Check => "check",
-        Command::Verify => "verify",
-    };
-    println!(
-        "surf {name}: discovered workspace at {} ({} hub(s)); command not implemented yet",
-        ws.root.display(),
-        hubs.len()
-    );
-    Ok(())
+    match cli.command {
+        Command::Lint => lint::run(&ws),
+        Command::Check => {
+            println!("surf check: not implemented yet");
+            Ok(std::process::ExitCode::SUCCESS)
+        }
+        Command::Verify => {
+            println!("surf verify: not implemented yet");
+            Ok(std::process::ExitCode::SUCCESS)
+        }
+    }
 }
