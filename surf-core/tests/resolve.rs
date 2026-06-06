@@ -4,6 +4,7 @@ const TS: &str = include_str!("fixtures/auth.ts");
 const RS: &str = include_str!("fixtures/auth.rs");
 const PY: &str = include_str!("fixtures/auth.py");
 const GO: &str = include_str!("fixtures/auth.go");
+const JS: &str = include_str!("fixtures/auth.js");
 
 fn span(src: &str, lang: Lang, anchor: &str) -> Span {
     let a = parse_anchor(anchor).unwrap();
@@ -174,6 +175,25 @@ fn go_missing_method_is_not_found() {
         err(GO, Lang::Go, "auth.go > TokenService > Missing"),
         ResolveError::NotFound { .. }
     ));
+}
+
+// --- JavaScript (reuses the TS family via the TSX grammar) ------------------
+
+#[test]
+fn js_function_method_and_nested_arrow() {
+    assert!(snippet(JS, span(JS, Lang::JavaScript, "auth.js > add")).contains("a + b"));
+    assert!(
+        snippet(JS, span(JS, Lang::JavaScript, "auth.js > Service > rotate"))
+            .contains("token + \"!\"")
+    );
+    assert!(snippet(JS, span(JS, Lang::JavaScript, "auth.js > make > inner")).contains("return x"));
+}
+
+#[test]
+fn js_jsx_parses_and_resolves() {
+    // Proves the TSX grammar handles JSX inside a .js file.
+    let s = span(JS, Lang::JavaScript, "auth.js > Badge");
+    assert!(snippet(JS, s).contains("className"));
 }
 
 #[test]

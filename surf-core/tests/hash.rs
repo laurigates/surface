@@ -192,6 +192,24 @@ fn go_loud_on_operator_flip() {
     );
 }
 
+// --- JavaScript ------------------------------------------------------------
+
+const JS_BASE: &str = "function add(a, b) {\n  return a + b;\n}\n";
+
+#[test]
+fn js_quiet_on_rename_loud_on_operator() {
+    let renamed = "function add(x, y) {\n  return x + y;\n}\n";
+    let flipped = "function add(a, b) {\n  return a - b;\n}\n";
+    assert_eq!(
+        h(JS_BASE, Lang::JavaScript, "f.js > add"),
+        h(renamed, Lang::JavaScript, "f.js > add")
+    );
+    assert_ne!(
+        h(JS_BASE, Lang::JavaScript, "f.js > add"),
+        h(flipped, Lang::JavaScript, "f.js > add")
+    );
+}
+
 // --- Magnitude is advisory and plausible -----------------------------------
 
 #[test]

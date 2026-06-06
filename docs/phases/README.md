@@ -22,13 +22,14 @@ line as you go.
 | 7 | [`07-distribution.md`](./07-distribution.md) | done |
 
 ## Language support
-TypeScript/TSX, Rust, **Python**, **Go**. Python rides the generic scope-set resolver; Go has a
-dedicated resolver (`resolve_go`) because its symbols are flat and methods attach by receiver
-(`Type > Method`). Next planned: JavaScript (via the TS grammar). Adding a language is additive
-across `lang.rs` / `resolve.rs` / `hash.rs`.
+TypeScript/TSX, **JavaScript/JSX**, Rust, **Python**, **Go**. JavaScript reuses the TS family
+via the TSX grammar (which parses plain JS and JSX) — zero new resolver/hash code. Python rides
+the generic scope-set resolver; Go has a dedicated resolver (`resolve_go`) because its symbols
+are flat and methods attach by receiver (`Type > Method`). Adding a language is additive across
+`lang.rs` / `resolve.rs` / `hash.rs`.
 
 ## Locked decisions (see OVERVIEW for rationale)
-- **Grammars:** TypeScript + Rust + Python + Go (Surface dogfoods its own Rust source).
+- **Grammars:** TypeScript + Rust + Python + Go (Surface dogfoods its own Rust source); JS/JSX via the TSX grammar.
 - **Layout:** Cargo workspace — `surf-core` (pure, no I/O) + `surf-cli` (clap binary).
 - **Rust install:** `rustup` via `curl | sh`, toolchain pinned in `rust-toolchain.toml`.
 

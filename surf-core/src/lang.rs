@@ -9,6 +9,7 @@ use tree_sitter::Language;
 pub enum Lang {
     TypeScript,
     Tsx,
+    JavaScript,
     Rust,
     Python,
     Go,
@@ -28,6 +29,7 @@ impl Lang {
         match ext {
             "ts" | "mts" | "cts" => Some(Lang::TypeScript),
             "tsx" => Some(Lang::Tsx),
+            "js" | "jsx" | "mjs" | "cjs" => Some(Lang::JavaScript),
             "rs" => Some(Lang::Rust),
             "py" | "pyi" => Some(Lang::Python),
             "go" => Some(Lang::Go),
@@ -38,7 +40,8 @@ impl Lang {
     pub(crate) fn tree_sitter_language(self) -> Language {
         match self {
             Lang::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            Lang::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+            // The TSX grammar is the JS/JSX superset, so it parses plain JS and JSX alike.
+            Lang::Tsx | Lang::JavaScript => tree_sitter_typescript::LANGUAGE_TSX.into(),
             Lang::Rust => tree_sitter_rust::LANGUAGE.into(),
             Lang::Python => tree_sitter_python::LANGUAGE.into(),
             Lang::Go => tree_sitter_go::LANGUAGE.into(),
@@ -47,7 +50,7 @@ impl Lang {
 
     pub(crate) fn family(self) -> Family {
         match self {
-            Lang::TypeScript | Lang::Tsx => Family::TypeScript,
+            Lang::TypeScript | Lang::Tsx | Lang::JavaScript => Family::TypeScript,
             Lang::Rust => Family::Rust,
             Lang::Python => Family::Python,
             Lang::Go => Family::Go,
@@ -66,6 +69,8 @@ mod tests {
             Some(Lang::TypeScript)
         );
         assert_eq!(Lang::from_path("App.tsx"), Some(Lang::Tsx));
+        assert_eq!(Lang::from_path("app.js"), Some(Lang::JavaScript));
+        assert_eq!(Lang::from_path("App.jsx"), Some(Lang::JavaScript));
         assert_eq!(Lang::from_path("src/main.rs"), Some(Lang::Rust));
         assert_eq!(Lang::from_path("api/server.py"), Some(Lang::Python));
         assert_eq!(Lang::from_path("cmd/main.go"), Some(Lang::Go));

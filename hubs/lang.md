@@ -2,10 +2,10 @@
 summary: Supported languages, file-extension detection, and bundled tree-sitter grammars.
 anchors:
   - claim: >
-      Language is detected purely by file extension (ts/tsx/mts/cts, rs, py/pyi, go); an
-      unknown extension yields None and the anchor is treated as unsupported.
+      Language is detected purely by file extension (ts/tsx/mts/cts, js/jsx/mjs/cjs, rs,
+      py/pyi, go); an unknown extension yields None and the anchor is treated as unsupported.
     at: surf-core/src/lang.rs > Lang > from_path
-    hash: 0a9fa1d91eeb
+    hash: c98dfc657543
 refs: []
 ---
 
