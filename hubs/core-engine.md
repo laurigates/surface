@@ -6,12 +6,14 @@ anchors:
       (which share a name) both get descended — `Type > method` is unique even when
       `Type` alone is ambiguous.
     at: surf-core/src/resolve.rs > resolve_node
+    hash: 4f8bbae191ac
   - claim: >
       The canonical hash is quiet on consistent renames (identifiers are alpha-renamed
       to positional placeholders) but loud on operators, keywords, and literal values.
     at:
       - surf-core/src/hash.rs > emit
       - surf-core/src/hash.rs > is_identifier
+    hash: 125a2640f019
 refs: []
 ---
 

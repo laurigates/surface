@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod check;
 mod lint;
+mod verify;
 mod workspace;
 
 use check::Format;
@@ -38,7 +39,13 @@ enum Command {
         base: String,
     },
     /// Re-hash an anchor after a human confirms the prose still holds.
-    Verify,
+    Verify {
+        /// Only verify the anchor whose `at:` exactly matches this (default: all anchors).
+        target: Option<String>,
+        /// Re-point a renamed single-segment anchor to its new symbol, then re-hash.
+        #[arg(long)]
+        follow: bool,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -59,9 +66,6 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
     match cli.command {
         Command::Lint => lint::run(&ws),
         Command::Check { format, base } => check::run(&ws, format, &base),
-        Command::Verify => {
-            println!("surf verify: not implemented yet");
-            Ok(std::process::ExitCode::SUCCESS)
-        }
+        Command::Verify { target, follow } => verify::run(&ws, target.as_deref(), follow),
     }
 }

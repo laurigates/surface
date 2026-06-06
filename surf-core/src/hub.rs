@@ -103,6 +103,130 @@ pub fn parse_hub(content: &str) -> Result<Hub, HubError> {
     Ok(Hub { frontmatter, body })
 }
 
+// --- Minimal-diff frontmatter editing (for `surf verify`) ------------------------------
+//
+// `verify` writes back into a hub that a human will review, so we edit surgically rather
+// than re-serializing the whole frontmatter (which would reorder keys and reflow folded
+// scalars). These operate on the full hub text, locate the Nth `anchors:` item, and touch
+// exactly one line. `anchor_index` matches the parse order of `Frontmatter::anchors`.
+
+/// Set (or insert) the `hash:` of the anchor at `anchor_index`. Returns the new file text,
+/// or `None` if the frontmatter structure or index can't be located.
+pub fn set_anchor_hash(file_text: &str, anchor_index: usize, new_hash: &str) -> Option<String> {
+    edit_anchor(file_text, anchor_index, |lines, item| {
+        set_key(lines, item, "hash", new_hash)
+    })
+}
+
+/// Rewrite a scalar `at:` of the anchor at `anchor_index` (used by `--follow`). Returns
+/// `None` if the structure can't be located or the `at:` is a list (not auto-followable).
+pub fn set_anchor_at(file_text: &str, anchor_index: usize, new_at: &str) -> Option<String> {
+    edit_anchor(file_text, anchor_index, |lines, item| {
+        let key_indent = item.key_indent;
+        let line = (item.start..item.end).find(|&i| {
+            leading_spaces(&lines[i]) == key_indent && lines[i].trim_start().starts_with("at:")
+        })?;
+        let value = lines[line].trim_start().strip_prefix("at:")?.trim();
+        if value.is_empty() {
+            return None; // list form — not auto-followable
+        }
+        lines[line] = format!("{}at: {new_at}", " ".repeat(key_indent));
+        Some(())
+    })
+}
+
+struct Item {
+    start: usize,
+    end: usize,
+    key_indent: usize,
+}
+
+fn edit_anchor(
+    file_text: &str,
+    anchor_index: usize,
+    edit: impl FnOnce(&mut Vec<String>, &Item) -> Option<()>,
+) -> Option<String> {
+    let mut lines: Vec<String> = file_text.split('\n').map(str::to_string).collect();
+    let (ystart, yend) = yaml_range(&lines)?;
+    let items = anchor_items(&lines, ystart, yend);
+    let item = items.get(anchor_index)?;
+    edit(&mut lines, item)?;
+    Some(lines.join("\n"))
+}
+
+fn set_key(lines: &mut Vec<String>, item: &Item, key: &str, value: &str) -> Option<()> {
+    let key_indent = item.key_indent;
+    let new_line = format!("{}{key}: {value}", " ".repeat(key_indent));
+
+    if let Some(i) = (item.start..item.end).find(|&i| {
+        leading_spaces(&lines[i]) == key_indent
+            && lines[i].trim_start().starts_with(&format!("{key}:"))
+    }) {
+        lines[i] = new_line;
+    } else {
+        let insert_at = (item.start..item.end)
+            .rev()
+            .find(|&i| !lines[i].trim().is_empty())
+            .map(|i| i + 1)
+            .unwrap_or(item.end);
+        lines.insert(insert_at, new_line);
+    }
+    Some(())
+}
+
+fn leading_spaces(s: &str) -> usize {
+    s.chars().take_while(|c| *c == ' ').count()
+}
+
+fn yaml_range(lines: &[String]) -> Option<(usize, usize)> {
+    if lines.first()?.trim_end() != "---" {
+        return None;
+    }
+    let end = (1..lines.len()).find(|&i| lines[i].trim_end() == "---")?;
+    Some((1, end))
+}
+
+fn anchor_items(lines: &[String], ystart: usize, yend: usize) -> Vec<Item> {
+    let Some(anchors_idx) = (ystart..yend).find(|&i| lines[i].trim_start().starts_with("anchors:"))
+    else {
+        return Vec::new();
+    };
+    let anchors_indent = leading_spaces(&lines[anchors_idx]);
+
+    let mut starts: Vec<(usize, usize)> = Vec::new(); // (start_line, dash_indent)
+    let mut item_indent: Option<usize> = None;
+    let mut seq_end = yend;
+    for (i, line) in lines.iter().enumerate().take(yend).skip(anchors_idx + 1) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let ind = leading_spaces(line);
+        if ind <= anchors_indent {
+            seq_end = i;
+            break;
+        }
+        let trimmed = line.trim_start();
+        let is_dash = trimmed == "-" || trimmed.starts_with("- ");
+        if is_dash && item_indent.map(|x| x == ind).unwrap_or(true) {
+            item_indent.get_or_insert(ind);
+            starts.push((i, ind));
+        }
+    }
+
+    starts
+        .iter()
+        .enumerate()
+        .map(|(n, &(start, dash_indent))| {
+            let end = starts.get(n + 1).map(|&(s, _)| s).unwrap_or(seq_end);
+            Item {
+                start,
+                end,
+                key_indent: dash_indent + 2,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +294,52 @@ mod tests {
     fn refs_parse_without_resolution() {
         let hub = parse_hub("---\nsummary: x\nrefs:\n  - other-hub\n---\nbody\n").unwrap();
         assert_eq!(hub.frontmatter.refs, vec!["other-hub".to_string()]);
+    }
+
+    const HUB: &str = "---\nsummary: s\nanchors:\n  - claim: first\n    at: a.rs > foo\n    hash: oldhash\n  - claim: second\n    at: a.rs > bar\n---\n# Body\n";
+
+    #[test]
+    fn set_hash_replaces_existing_in_place() {
+        let out = set_anchor_hash(HUB, 0, "newhash").unwrap();
+        assert!(out.contains("hash: newhash"));
+        assert!(!out.contains("hash: oldhash"));
+        // Only the one line changed.
+        let before: Vec<_> = HUB.lines().collect();
+        let after: Vec<_> = out.lines().collect();
+        assert_eq!(before.len(), after.len());
+        let diffs = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert_eq!(diffs, 1);
+    }
+
+    #[test]
+    fn set_hash_inserts_when_absent() {
+        let out = set_anchor_hash(HUB, 1, "h2").unwrap();
+        let reparsed = parse_hub(&out).unwrap();
+        assert_eq!(reparsed.frontmatter.anchors[1].hash.as_deref(), Some("h2"));
+        assert_eq!(
+            reparsed.frontmatter.anchors[0].hash.as_deref(),
+            Some("oldhash")
+        );
+    }
+
+    #[test]
+    fn set_hash_to_same_value_is_byte_identical() {
+        assert_eq!(set_anchor_hash(HUB, 0, "oldhash").unwrap(), HUB);
+    }
+
+    #[test]
+    fn follow_rewrites_scalar_at() {
+        let out = set_anchor_at(HUB, 0, "a.rs > foo_renamed").unwrap();
+        let reparsed = parse_hub(&out).unwrap();
+        assert_eq!(
+            reparsed.frontmatter.anchors[0].at.sites(),
+            &["a.rs > foo_renamed".to_string()]
+        );
+    }
+
+    #[test]
+    fn follow_refuses_list_at() {
+        let list_hub = "---\nsummary: s\nanchors:\n  - claim: c\n    at:\n      - a.rs > foo\n      - a.rs > bar\n---\n";
+        assert_eq!(set_anchor_at(list_hub, 0, "x"), None);
     }
 }

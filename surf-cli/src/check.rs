@@ -52,29 +52,30 @@ fn check_workspace(ws: &Workspace, base: &str) -> Result<Vec<Divergence>> {
         };
 
         for claim in &hub.frontmatter.anchors {
-            for site in claim.at.sites() {
-                if let Some(d) = check_site(ws, &rel, claim, site, base) {
-                    out.push(d);
-                }
+            if let Some(d) = check_claim(ws, &rel, claim, base) {
+                out.push(d);
             }
         }
     }
     Ok(out)
 }
 
-fn check_site(
+fn check_claim(
     ws: &Workspace,
     hub: &str,
     claim: &surf_core::Claim,
-    site: &str,
     base: &str,
 ) -> Option<Divergence> {
     let prose = claim.claim.trim().to_string();
+    let sites = claim.at.sites();
+    let at_display = sites.join("  +  ");
+    let single = sites.len() == 1;
+
     let mk = |kind, old_hash, new_hash, old_code, new_code, magnitude| {
         Some(Divergence {
             hub: hub.to_string(),
             claim: prose.clone(),
-            at: site.to_string(),
+            at: at_display.clone(),
             kind,
             old_hash,
             new_hash,
@@ -85,35 +86,38 @@ fn check_site(
         })
     };
 
-    let anchor = parse_anchor(site).ok()?;
-    let lang = Lang::from_path(&anchor.file)?;
-    let current = std::fs::read_to_string(ws.root.join(&anchor.file)).ok();
-
-    let Some(current) = current else {
-        return mk(
-            DivergenceKind::Unresolvable,
-            claim.hash.clone(),
-            None,
-            None,
-            None,
-            None,
-        );
-    };
-
-    let Ok(span) = resolve(&current, lang, &anchor) else {
-        return mk(
-            DivergenceKind::Unresolvable,
-            claim.hash.clone(),
-            None,
-            None,
-            None,
-            None,
-        );
-    };
-    let new_code = current
-        .get(span.start_byte..span.end_byte)
-        .map(str::to_string);
-    let new_hash = hash_anchor(&current, lang, &anchor).ok()?;
+    // Resolve and hash every site; the claim's hash is the combination (§6.3).
+    let mut site_hashes = Vec::with_capacity(sites.len());
+    let mut first_new_code = None;
+    for site in sites {
+        let Some((current, lang, anchor)) = read_site(ws, site) else {
+            return mk(
+                DivergenceKind::Unresolvable,
+                claim.hash.clone(),
+                None,
+                None,
+                None,
+                None,
+            );
+        };
+        let Ok(span) = resolve(&current, lang, &anchor) else {
+            return mk(
+                DivergenceKind::Unresolvable,
+                claim.hash.clone(),
+                None,
+                None,
+                None,
+                None,
+            );
+        };
+        if single {
+            first_new_code = current
+                .get(span.start_byte..span.end_byte)
+                .map(str::to_string);
+        }
+        site_hashes.push(hash_anchor(&current, lang, &anchor).ok()?);
+    }
+    let new_hash = surf_core::combine_site_hashes(&site_hashes);
 
     match &claim.hash {
         None => mk(
@@ -121,30 +125,54 @@ fn check_site(
             None,
             Some(new_hash),
             None,
-            new_code,
+            first_new_code,
             None,
         ),
         Some(stored) if *stored == new_hash => None, // clean
         Some(stored) => {
-            // Diverged. Recover the previous span + magnitude from git (best effort).
-            let old_source = git_show(&ws.root, base, &anchor.file);
-            let old_code = old_source
-                .as_deref()
-                .and_then(|s| resolve(s, lang, &anchor).ok().map(|sp| (s, sp)))
-                .and_then(|(s, sp)| s.get(sp.start_byte..sp.end_byte).map(str::to_string));
-            let magnitude = old_source
-                .as_deref()
-                .and_then(|s| diff_magnitude(s, &current, lang, &anchor).ok());
+            // Best-effort old_code + magnitude from git, for single-site anchors only.
+            let (old_code, magnitude) = if single {
+                enrich_from_git(ws, base, &sites[0])
+            } else {
+                (None, None)
+            };
             mk(
                 DivergenceKind::Changed,
                 Some(stored.clone()),
                 Some(new_hash),
                 old_code,
-                new_code,
+                first_new_code,
                 magnitude,
             )
         }
     }
+}
+
+fn read_site(ws: &Workspace, site: &str) -> Option<(String, Lang, surf_core::Anchor)> {
+    let anchor = parse_anchor(site).ok()?;
+    let lang = Lang::from_path(&anchor.file)?;
+    let current = std::fs::read_to_string(ws.root.join(&anchor.file)).ok()?;
+    Some((current, lang, anchor))
+}
+
+fn enrich_from_git(
+    ws: &Workspace,
+    base: &str,
+    site: &str,
+) -> (Option<String>, Option<surf_core::Magnitude>) {
+    let Some((current, lang, anchor)) = read_site(ws, site) else {
+        return (None, None);
+    };
+    let Some(old_source) = git_show(&ws.root, base, &anchor.file) else {
+        return (None, None);
+    };
+    let old_code = resolve(&old_source, lang, &anchor).ok().and_then(|sp| {
+        old_source
+            .get(sp.start_byte..sp.end_byte)
+            .map(str::to_string)
+    });
+    let magnitude = diff_magnitude(&old_source, &current, lang, &anchor).ok();
+    (old_code, magnitude)
 }
 
 fn git_show(root: &Path, base: &str, rel_file: &str) -> Option<String> {

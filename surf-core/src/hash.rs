@@ -30,6 +30,16 @@ pub fn hash_anchor(source: &str, lang: Lang, anchor: &Anchor) -> Result<String, 
     Ok(hash_tokens(&anchor_tokens(source, lang, anchor)?))
 }
 
+/// One hash per claim from its per-site hashes (§6.3). A single site is the identity (so the
+/// stored hash is just the symbol's hash); multiple sites combine order-sensitively, so the
+/// claim is stale if *any* listed span changes.
+pub fn combine_site_hashes(site_hashes: &[String]) -> String {
+    match site_hashes {
+        [one] => one.clone(),
+        many => hash_tokens(many),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Magnitude {

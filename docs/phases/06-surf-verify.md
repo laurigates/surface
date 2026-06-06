@@ -7,7 +7,19 @@ holds. `--follow` re-points a renamed anchor and re-hashes in one step.
 
 **Depends on:** Phase 5.
 
-**Status:** not started
+**Status:** done
+
+> `surf-cli/src/verify.rs` (+ `main.rs`). `surf verify [<at>] [--follow]` re-hashes anchors
+> and writes the hash back. Writes are **surgical** via `surf-core::set_anchor_hash` /
+> `set_anchor_at` (minimal-diff line editor in `hub.rs`) — only the touched line changes, and
+> an unchanged hash is a no-op (byte-identical). `--follow` re-points a renamed single-site,
+> single-segment anchor (via `find_renamed`) then re-hashes. Unresolvable anchors are skipped
+> (exit non-zero) unless `--follow` recovers them.
+>
+> **Model fix carried in from Phase 5:** a list `at:` now produces **one combined hash per
+> claim** (`combine_site_hashes`, single-site = identity), so check/verify treat a multi-site
+> claim as one unit (stale if any span changes) — previously check looped per-site against a
+> single stored hash, which was wrong.
 
 ## Steps
 
