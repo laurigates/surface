@@ -8,7 +8,12 @@ fixtures — no markdown, no CLI surface yet.
 
 **Depends on:** Phase 0.
 
-**Status:** not started
+**Status:** done
+
+> Grammars pinned: `tree-sitter 0.26.9`, `tree-sitter-typescript 0.23.2`, `tree-sitter-rust 0.24.2`.
+> Resolver uses a **scope-set** walk (`surf-core/src/resolve.rs`) so a type and its
+> `impl`/methods (which share a name) disambiguate by path: `Type` alone is `Ambiguous`,
+> but `Type > method` resolves uniquely. `NotFound` / `Ambiguous` / `Parse` are distinct.
 
 ## Why this is the riskiest phase
 The entire value of the tool is firing on the *right* change (§6). Reliable polyglot spans
