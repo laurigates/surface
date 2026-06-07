@@ -10,7 +10,7 @@ anchors:
       new derives the target directory from the literal prefix of the first hub glob, then
       writes a hub with no anchors so it is lint-clean immediately; it refuses to overwrite.
     at: surf-cli/src/new.rs > hub_dir
-    hash: dc1a3a8a00af
+    hash: 598296b19fb6
 refs: []
 ---
 

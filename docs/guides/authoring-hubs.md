@@ -30,6 +30,21 @@ Prose a human (or agent) reads to understand this domain.
 Where hubs live is configured by the `hubs` glob in `surf.toml` (default `hubs/*.md`); keep them
 central or co-locate them with code (`["**/_hub.md"]`).
 
+## Bootstrapping with `surf suggest`
+
+Authoring claims by hand is the main adoption cost. To get a head start, point `surf suggest` at
+your source and it lists the top-level public functions no hub anchors yet, as a copy-pasteable
+starter hub:
+
+```sh
+surf suggest "src/**/*.ts"        # or --format json for tooling
+```
+
+It only suggests — it never writes a file or stamps a hash. Paste the block into a hub (or
+`surf new <name>`), write a real claim sentence for each anchor you keep, delete the rest, then
+`surf verify`. Treat it as a checklist of undocumented surface, not a mandate to anchor everything
+(see granularity below).
+
 ## The anchor grammar
 
 An anchor is a file path, then a `>`-separated symbol path:
@@ -88,5 +103,21 @@ surf verify --follow            # renamed symbol: re-point the anchor and re-has
 
 Verifying without reading is the failure mode the whole tool exists to prevent. A green gate
 promises only "nothing anchored changed since last sign-off" — never that the prose is true.
+
+## Hubs and `AGENTS.md`
+
+Hubs are *declarative* domain briefings; `AGENTS.md` is *imperative* operating instructions for
+coding agents. Keep them separate — don't copy hub prose into `AGENTS.md`. Instead, give
+`AGENTS.md` a pointer block that sends agents to the hubs directory to search for what they need:
+
+```markdown
+<!-- surf:hubs -->
+Context lives in [`hubs/`](./hubs/) — read only the hub(s) you need.
+<!-- /surf:hubs -->
+```
+
+When that block is present, `surf lint` checks it links the configured hubs directory and that
+the directory exists. It deliberately does **not** enumerate individual hubs — that would push an
+agent to read everything instead of the one hub it needs.
 
 See also: [CI integration](./ci-integration.md) · [Examples](../examples.md).

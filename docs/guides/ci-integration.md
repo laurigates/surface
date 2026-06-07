@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-      - uses: Connorrmcd6/surface@v0.1.1
+      - uses: Connorrmcd6/surface@v0.2.0
 ```
 
 The action takes `args` (default `check`), `version` (default `latest`), and
@@ -39,7 +39,7 @@ the merge base — a shallow `git fetch <ref>` is plenty, still not `fetch-depth
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.1.1
+  rev: v0.2.0
   hooks:
     - id: surf-check
 ```

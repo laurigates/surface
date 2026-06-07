@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-07
+
 ### Added
 - `surf check` scoping: `--files <globs>` evaluates only claims whose anchored file(s) match,
   and an explicit `--base <ref>` diff-scopes the gate to claims whose files changed since the
@@ -16,8 +18,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   plus counts.
 - Advisory `surf lint` granularity warnings (never blocking): a near-whole-file anchor span, a
   hub with too many anchors, and public functions in an anchored file that no claim covers.
+- `surf lint` enforces the `AGENTS.md` pointer block: when `AGENTS.md` carries a
+  `<!-- surf:hubs -->` block, it must link the hubs directory (and that directory must exist) so
+  agents are pointed at the hubs to search — never duplicating or enumerating them. Opt-in;
+  blocks on a missing/dangling pointer.
+- `surf suggest <globs>` — scans source for top-level public functions that no hub anchors yet
+  and prints a copy-pasteable starter hub. Suggestions only: never writes a file or stamps a hash.
 - `surf_core::public_fns` — enumerates a file's top-level public functions (backs the
-  under-coverage warning).
+  under-coverage warning and `surf suggest`).
+
+### Changed
+- An explicit `surf check --base <ref>` now **diff-scopes** the gate to claims whose files
+  changed, in addition to feeding advisory `old_code`/`magnitude`. Previously `--base` only fed
+  enrichment and every claim was still checked. CI that passes `--base` explicitly will now check
+  fewer claims; omit `--base` for a full check.
 
 ## [0.1.1] - 2026-06-06
 
@@ -46,6 +60,7 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Connorrmcd6/surface/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Connorrmcd6/surface/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Connorrmcd6/surface/releases/tag/v0.1.0

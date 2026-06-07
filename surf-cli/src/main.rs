@@ -5,6 +5,7 @@ mod format;
 mod init;
 mod lint;
 mod new;
+mod suggest;
 mod verify;
 mod workspace;
 
@@ -68,6 +69,15 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
     },
+    /// Propose anchors for public functions no hub covers yet (suggestions only; never writes).
+    Suggest {
+        /// Source globs to scan, relative to the workspace root (e.g. "surf-core/src/**/*.rs").
+        #[arg(required = true)]
+        globs: Vec<String>,
+        /// Output format for the suggestions.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -104,5 +114,6 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
             follow,
             format,
         } => verify::run(&ws, target.as_deref(), follow, format),
+        Command::Suggest { globs, format } => suggest::run(&ws, &globs, format),
     }
 }

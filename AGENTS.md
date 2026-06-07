@@ -10,6 +10,7 @@ from under the prose. **This repo dogfoods Surface on its own source** — the g
 
 ## Where the context lives: `hubs/`
 
+<!-- surf:hubs -->
 [`hubs/`](./hubs/) is the governed context for this codebase. Each hub is markdown prose
 describing an invariant, with frontmatter anchoring the claim to a specific symbol. Unlike code
 comments, **hub prose is sealed by `surf check`** — if the anchored code changed since a human
@@ -21,6 +22,10 @@ codebase; reading all of them is wasteful context. They are split per module
 (`hubs/cli-check.md`, `hubs/hash.md`, `hubs/resolve.md`, …), and each starts with a one-line
 `summary:` in its frontmatter. Scan the filenames and summaries, then open only the hub(s)
 covering the area you're working on.
+<!-- /surf:hubs -->
+
+`surf lint` enforces that this block stays — pointing at the hubs directory, never duplicating
+or enumerating individual hubs.
 
 Caveat (the tool's own honest limit): a green gate means *the anchored code hasn't changed
 since last verified* — not that every sentence is true, and nothing about code no hub anchored.
