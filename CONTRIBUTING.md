@@ -40,5 +40,9 @@ cargo run -q -p surf-cli -- verify "surf-core/src/hash.rs > emit"
 - `surf-cli/` — the `surf` binary: workspace discovery, the commands, all I/O.
 - `docs/phases/` — how the MVP was built, one self-contained file per phase. Start with
   `docs/phases/OVERVIEW.md`. The product spec is `docs/surface-proposal.md`.
+- `docs/index.md` — the documentation map (guides, reference, concepts). `AGENTS.md` is the
+  on-ramp for AI coding agents.
 
 Keep `surf-core` free of I/O so it stays reusable; put filesystem/git work in `surf-cli`.
+
+When a change is user-facing, add a line to `CHANGELOG.md` under `[Unreleased]`.

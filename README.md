@@ -131,14 +131,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-      - uses: Connorrmcd6/surface@v0.1.0
+      - uses: Connorrmcd6/surface@v0.2.0
 ```
 
 pre-commit — `.pre-commit-config.yaml`:
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.1.0
+  rev: v0.2.0
   hooks:
     - id: surf-check
 ```
@@ -235,9 +235,20 @@ surf check --format json
 
 - `surf init` — bootstrap a workspace: write `surf.toml` and create the hubs directory (idempotent).
 - `surf new <name>` — scaffold a new empty hub under your hubs directory.
+- `surf suggest <globs> [--format human|json]` — scan source globs for top-level public functions no hub anchors yet and print a copy-pasteable starter hub. Suggestions only — never writes or stamps.
 - `surf lint [--format human|json]` — validate frontmatter and that every `at:` resolves to exactly one symbol. Warns on a renamed symbol (suggests `verify --follow`); blocks on ambiguous or vanished anchors. Also emits advisory granularity warnings (never blocking, §8): a near-whole-file anchor span, a hub with too many anchors, and public functions in an anchored file that no claim covers.
 - `surf check [--format human|json] [--base <ref>] [--files <globs>]` — the gate. AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any divergence. By default every claim is checked. `--base <ref>` scopes to claims whose anchored files changed since the merge base **and** recovers the advisory `old_code` / `magnitude` fields from that ref (omit it for a full check with enrichment against `HEAD`). `--files <globs>` scopes to claims whose anchored file(s) match a comma-separated glob (e.g. `surf-core/**`).
 - `surf verify [<at>] [--follow] [--format human|json]` — re-seal after you've confirmed the prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor; `--follow` re-points a renamed single-symbol anchor and re-hashes in one step.
+
+## Documentation
+
+Full docs live in [`docs/`](docs/index.md):
+
+- [Authoring hubs](docs/guides/authoring-hubs.md) — writing claims and anchors, choosing granularity, the verify loop.
+- [CI integration](docs/guides/ci-integration.md) — the Action, the pre-commit hook, and scoping the gate to a PR.
+- [Examples](docs/examples.md) — a minimal worked hub in each supported language.
+
+Release history is in [`CHANGELOG.md`](CHANGELOG.md). AI agents working in this repo: see [`AGENTS.md`](AGENTS.md).
 
 ## Configuration
 

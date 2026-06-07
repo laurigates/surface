@@ -24,7 +24,7 @@ pub fn run(ws: &Workspace, name: &str) -> Result<ExitCode> {
 
 /// The directory a new hub should go in: the literal prefix of the first hub glob, up to the
 /// first glob metacharacter. `hubs/*.md` -> `hubs`, `docs/hubs/*.md` -> `docs/hubs`.
-fn hub_dir(globs: &[String]) -> PathBuf {
+pub(crate) fn hub_dir(globs: &[String]) -> PathBuf {
     let glob = globs.first().map(String::as_str).unwrap_or("hubs/*.md");
     let literal = glob.split(['*', '?', '[']).next().unwrap_or("");
     match literal.rfind('/') {

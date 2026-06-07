@@ -13,6 +13,13 @@ anchors:
       whose anchors all resolved cleanly, so coverage nags never pile onto broken anchors.
     at: surf-cli/src/lint.rs > lint_under_coverage
     hash: dad7767e0594
+  - claim: >
+      AGENTS.md enforcement is opt-in (§11.6): only when the file carries a surf:hubs marker
+      block does lint require it to link the configured hubs directory (which must exist),
+      blocking otherwise. It points agents at the directory to search — never enumerating
+      individual hubs, which would push an agent to read everything.
+    at: surf-cli/src/lint.rs > lint_agents_pointer
+    hash: 938380798f7a
 refs: []
 ---
 
@@ -21,4 +28,5 @@ refs: []
 `lint_workspace` loads every hub and runs `lint_site` over each anchor; `run` prints the
 findings and chooses the exit code. Beyond resolution, lint emits advisory warnings (§8) that
 nudge granularity: a near-whole-file span (`lint_coarse_span`), too many anchors in one hub,
-and public functions with no covering claim (`lint_under_coverage`).
+and public functions with no covering claim (`lint_under_coverage`). It also validates the
+`AGENTS.md` pointer block (`lint_agents_pointer`).

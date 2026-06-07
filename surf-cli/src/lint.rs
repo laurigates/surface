@@ -145,7 +145,58 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
             lint_under_coverage(ws, &rel, file, covered_names, &mut findings);
         }
     }
+
+    lint_agents_pointer(ws, &mut findings);
     Ok(findings)
+}
+
+/// §11.6: `AGENTS.md` (imperative agent instructions) must point at the hubs *directory* and
+/// tell the agent to search it — not duplicate hub prose, and not enumerate every hub (which
+/// would push an agent to read everything). Opt-in: enforced only when the file carries a
+/// `<!-- surf:hubs -->` … `<!-- /surf:hubs -->` block. The block must link the configured hubs
+/// directory, and that directory must exist.
+fn lint_agents_pointer(ws: &Workspace, findings: &mut Vec<Finding>) {
+    const OPEN: &str = "<!-- surf:hubs -->";
+    const CLOSE: &str = "<!-- /surf:hubs -->";
+
+    let Ok(text) = std::fs::read_to_string(ws.root.join("AGENTS.md")) else {
+        return; // no AGENTS.md → nothing to enforce
+    };
+    let Some(block) = text
+        .split_once(OPEN)
+        .and_then(|(_, rest)| rest.split_once(CLOSE))
+        .map(|(block, _)| block)
+    else {
+        return; // no pointer block → opt-out
+    };
+
+    let dir = crate::new::hub_dir(&ws.config.hubs);
+    let dir_str = dir.to_string_lossy();
+    let want = dir_str.trim_end_matches('/');
+
+    let links_dir = link_targets(block).any(|t| {
+        let t = t.trim_start_matches("./").trim_end_matches('/');
+        t == want
+    });
+
+    if !links_dir || !ws.root.join(&dir).is_dir() {
+        findings.push(Finding {
+            severity: Severity::Block,
+            hub: "AGENTS.md".to_string(),
+            claim: String::new(),
+            at: String::new(),
+            message: format!(
+                "`surf:hubs` block must link the hubs directory `{want}/` and it must exist — agents read it to find context"
+            ),
+        });
+    }
+}
+
+/// Markdown link targets (`](target)`) in a fragment of text.
+fn link_targets(text: &str) -> impl Iterator<Item = &str> {
+    text.split("](")
+        .skip(1)
+        .filter_map(|after| after.split_once(')').map(|(target, _)| target.trim()))
 }
 
 /// What `lint_site` learned about one anchor site: which file/symbol it names and whether it
@@ -485,5 +536,47 @@ mod tests {
                 .any(|x| x.severity == Severity::Warn && x.message.contains("anchors in one hub")),
             "expected a too-many-anchors warning, got {f:?}"
         );
+    }
+
+    fn agents_findings(ws: &Workspace) -> Vec<Finding> {
+        lint_workspace(ws)
+            .unwrap()
+            .into_iter()
+            .filter(|f| f.hub == "AGENTS.md")
+            .collect()
+    }
+
+    #[test]
+    fn agents_pointer_valid_is_silent() {
+        // ws_with creates the `hubs/` dir; the block links it.
+        let (_t, ws) = ws_with(&[(
+            "AGENTS.md",
+            "# Agents\n<!-- surf:hubs -->\nContext lives in [`hubs/`](./hubs/) — search it.\n<!-- /surf:hubs -->\n",
+        )]);
+        assert!(agents_findings(&ws).is_empty());
+    }
+
+    #[test]
+    fn agents_no_markers_is_silent() {
+        // A link to hubs but no markers → opt-out, no enforcement.
+        let (_t, ws) = ws_with(&[("AGENTS.md", "# Agents\nsee [hubs](./hubs/)\n")]);
+        assert!(agents_findings(&ws).is_empty());
+    }
+
+    #[test]
+    fn agents_no_file_is_silent() {
+        let (_t, ws) = ws_with(&[("src/m.rs", "pub fn a() {}\n")]);
+        assert!(agents_findings(&ws).is_empty());
+    }
+
+    #[test]
+    fn agents_pointer_to_wrong_dir_blocks() {
+        let (_t, ws) = ws_with(&[(
+            "AGENTS.md",
+            "<!-- surf:hubs -->\nsee [stuff](./nothubs/)\n<!-- /surf:hubs -->\n",
+        )]);
+        let f = agents_findings(&ws);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].severity, Severity::Block);
     }
 }
