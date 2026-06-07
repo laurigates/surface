@@ -239,6 +239,16 @@ surf check --format json
 - `surf check [--format human|json] [--base <ref>] [--files <globs>]` — the gate. AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any divergence. By default every claim is checked. `--base <ref>` scopes to claims whose anchored files changed since the merge base **and** recovers the advisory `old_code` / `magnitude` fields from that ref (omit it for a full check with enrichment against `HEAD`). `--files <globs>` scopes to claims whose anchored file(s) match a comma-separated glob (e.g. `surf-core/**`).
 - `surf verify [<at>] [--follow] [--format human|json]` — re-seal after you've confirmed the prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor; `--follow` re-points a renamed single-symbol anchor and re-hashes in one step.
 
+## Documentation
+
+Full docs live in [`docs/`](docs/index.md):
+
+- [Authoring hubs](docs/guides/authoring-hubs.md) — writing claims and anchors, choosing granularity, the verify loop.
+- [CI integration](docs/guides/ci-integration.md) — the Action, the pre-commit hook, and scoping the gate to a PR.
+- [Examples](docs/examples.md) — a minimal worked hub in each supported language.
+
+Release history is in [`CHANGELOG.md`](CHANGELOG.md). AI agents working in this repo: see [`AGENTS.md`](AGENTS.md).
+
 ## Configuration
 
 A `surf.toml` at the repo root marks the workspace — `surf` walks up from the current
