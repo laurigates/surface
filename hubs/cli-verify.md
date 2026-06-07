@@ -13,5 +13,6 @@ refs: []
 
 # surf verify
 
-The human escape hatch. `run` applies each `plan_claim` result through the surgical hub editor
-and only rewrites a file when something actually changed.
+The human escape hatch. `verify_all` applies each `plan_claim` result through the surgical hub
+editor and only rewrites a file when something actually changed; `run` then renders the
+collected report as human text or JSON.

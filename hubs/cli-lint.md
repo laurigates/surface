@@ -1,16 +1,24 @@
 ---
-summary: surf lint — every anchor resolves to exactly one symbol; renames warn, not block.
+summary: surf lint — anchors must resolve to one symbol (renames warn); plus advisory granularity warnings.
 anchors:
   - claim: >
       lint produces a Finding per anchor site: ambiguous or vanished anchors block, while a
       renamed-but-present symbol (stored-hash match) only warns and points at verify --follow.
       Block-level findings set a non-zero exit; warnings alone keep exit 0.
     at: surf-cli/src/lint.rs > lint_site
-    hash: 840a2d93cf22
+    hash: 51bb818e87ae
+  - claim: >
+      Advisory granularity guidance (§8), never blocking: lint_under_coverage flags public
+      functions in a hub's already-anchored files that no claim covers — but only for files
+      whose anchors all resolved cleanly, so coverage nags never pile onto broken anchors.
+    at: surf-cli/src/lint.rs > lint_under_coverage
+    hash: dad7767e0594
 refs: []
 ---
 
 # surf lint
 
 `lint_workspace` loads every hub and runs `lint_site` over each anchor; `run` prints the
-findings and chooses the exit code.
+findings and chooses the exit code. Beyond resolution, lint emits advisory warnings (§8) that
+nudge granularity: a near-whole-file span (`lint_coarse_span`), too many anchors in one hub,
+and public functions with no covering claim (`lint_under_coverage`).

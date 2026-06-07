@@ -4,8 +4,10 @@
 //! step (§6.4). Writes are surgical (only the touched line changes) and skipped entirely
 //! when nothing changed, so a no-op verify leaves the file byte-identical.
 
+use crate::format::Format;
 use crate::workspace::{read_site, Workspace};
 use anyhow::{Context, Result};
+use serde::Serialize;
 use std::process::ExitCode;
 use surf_core::{
     combine_site_hashes, find_renamed, hash_anchor, parse_anchor, parse_hub, set_anchor_at,
@@ -19,35 +21,71 @@ enum Plan {
     Skip(String),
 }
 
-#[derive(Default)]
-struct Summary {
-    stamped: usize,
-    unchanged: usize,
-    errors: Vec<String>,
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+enum VerifyOutcome {
+    Stamped,
+    Followed { new_at: String },
+    Unchanged,
+    Skipped { reason: String },
 }
 
-pub fn run(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<ExitCode> {
-    let summary = verify_all(ws, target, follow)?;
+#[derive(Debug, Clone, Serialize)]
+struct AnchorResult {
+    hub: String,
+    at: String,
+    #[serde(flatten)]
+    outcome: VerifyOutcome,
+}
 
-    for e in &summary.errors {
-        println!("error {e}");
+#[derive(Debug, Default, Serialize)]
+struct VerifyReport {
+    stamped: usize,
+    unchanged: usize,
+    errors: usize,
+    anchors: Vec<AnchorResult>,
+    #[serde(skip)]
+    updated_files: Vec<String>,
+}
+
+pub fn run(ws: &Workspace, target: Option<&str>, follow: bool, format: Format) -> Result<ExitCode> {
+    let report = verify_all(ws, target, follow)?;
+
+    match format {
+        Format::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        Format::Human => print_human(&report),
     }
-    println!(
-        "surf verify: stamped {} anchor(s), {} skipped, {} error(s).",
-        summary.stamped,
-        summary.unchanged,
-        summary.errors.len()
-    );
 
-    Ok(if summary.errors.is_empty() {
+    Ok(if report.errors == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     })
 }
 
-fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Summary> {
-    let mut summary = Summary::default();
+fn print_human(report: &VerifyReport) {
+    for a in &report.anchors {
+        match &a.outcome {
+            VerifyOutcome::Followed { new_at } => {
+                println!("followed {} :: {} → {new_at}", a.hub, a.at)
+            }
+            VerifyOutcome::Skipped { reason } => {
+                println!("error {} :: {} ({reason})", a.hub, a.at)
+            }
+            _ => {}
+        }
+    }
+    for f in &report.updated_files {
+        println!("updated {f}");
+    }
+    println!(
+        "surf verify: stamped {} anchor(s), {} skipped, {} error(s).",
+        report.stamped, report.unchanged, report.errors
+    );
+}
+
+fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<VerifyReport> {
+    let mut report = VerifyReport::default();
     let mut matched_any = false;
 
     for hub_path in ws.hub_paths()? {
@@ -71,17 +109,21 @@ fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Summ
                 }
             }
             matched_any = true;
-            let label = format!("{rel} :: {}", sites.join("  +  "));
+            let at = sites.join("  +  ");
 
-            match plan_claim(ws, claim, follow) {
+            let outcome = match plan_claim(ws, claim, follow) {
                 Plan::Hash(new_hash) => match set_anchor_hash(&text, idx, &new_hash) {
                     Some(updated) => {
                         text = updated;
-                        summary.stamped += 1;
+                        report.stamped += 1;
+                        VerifyOutcome::Stamped
                     }
-                    None => summary
-                        .errors
-                        .push(format!("{label} (could not write hash)")),
+                    None => {
+                        report.errors += 1;
+                        VerifyOutcome::Skipped {
+                            reason: "could not write hash".into(),
+                        }
+                    }
                 },
                 Plan::Follow { new_at, new_hash } => {
                     match set_anchor_at(&text, idx, &new_at)
@@ -89,23 +131,38 @@ fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Summ
                     {
                         Some(updated) => {
                             text = updated;
-                            summary.stamped += 1;
-                            println!("followed {label} → {new_at}");
+                            report.stamped += 1;
+                            VerifyOutcome::Followed { new_at }
                         }
-                        None => summary
-                            .errors
-                            .push(format!("{label} (could not rewrite at:)")),
+                        None => {
+                            report.errors += 1;
+                            VerifyOutcome::Skipped {
+                                reason: "could not rewrite at:".into(),
+                            }
+                        }
                     }
                 }
-                Plan::Unchanged => summary.unchanged += 1,
-                Plan::Skip(reason) => summary.errors.push(format!("{label} ({reason})")),
-            }
+                Plan::Unchanged => {
+                    report.unchanged += 1;
+                    VerifyOutcome::Unchanged
+                }
+                Plan::Skip(reason) => {
+                    report.errors += 1;
+                    VerifyOutcome::Skipped { reason }
+                }
+            };
+
+            report.anchors.push(AnchorResult {
+                hub: rel.clone(),
+                at,
+                outcome,
+            });
         }
 
         if text != original {
             std::fs::write(&hub_path, &text)
                 .with_context(|| format!("writing {}", hub_path.display()))?;
-            println!("updated {rel}");
+            report.updated_files.push(rel);
         }
     }
 
@@ -115,7 +172,7 @@ fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Summ
         }
     }
 
-    Ok(summary)
+    Ok(report)
 }
 
 fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
@@ -215,7 +272,7 @@ mod tests {
         );
 
         let ws = Workspace::discover(root).unwrap();
-        run(&ws, None, false).unwrap();
+        run(&ws, None, false, Format::Human).unwrap();
 
         // Hash now present and equals the canonical hash of the symbol.
         let after = fs::read_to_string(root.join("hubs/a.md")).unwrap();
@@ -232,10 +289,11 @@ mod tests {
         );
 
         // Second verify is a no-op: byte-identical, and reported as skipped not stamped.
-        let summary = verify_all(&ws, None, false).unwrap();
-        assert_eq!(summary.stamped, 0);
-        assert_eq!(summary.unchanged, 1);
-        assert!(summary.errors.is_empty());
+        let report = verify_all(&ws, None, false).unwrap();
+        assert_eq!(report.stamped, 0);
+        assert_eq!(report.unchanged, 1);
+        assert_eq!(report.errors, 0);
+        assert!(report.updated_files.is_empty());
         assert_eq!(fs::read_to_string(root.join("hubs/a.md")).unwrap(), after);
     }
 
@@ -259,7 +317,7 @@ mod tests {
         );
 
         let ws = Workspace::discover(root).unwrap();
-        let code = run(&ws, None, true).unwrap();
+        let code = run(&ws, None, true, Format::Human).unwrap();
         assert_eq!(code, ExitCode::SUCCESS);
 
         let hub = parse_hub(&fs::read_to_string(root.join("hubs/a.md")).unwrap()).unwrap();
@@ -286,10 +344,45 @@ mod tests {
         );
 
         let ws = Workspace::discover(root).unwrap();
-        let code = run(&ws, None, false).unwrap();
+        let code = run(&ws, None, false, Format::Human).unwrap();
         assert_eq!(code, ExitCode::FAILURE);
         // Unchanged: no hash written.
         let hub = parse_hub(&fs::read_to_string(root.join("hubs/a.md")).unwrap()).unwrap();
         assert_eq!(hub.frontmatter.anchors[0].hash, None);
+    }
+
+    #[test]
+    fn report_serializes_and_stamps_side_effect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(root, "surf.toml", "");
+        write(
+            root,
+            "src/m.rs",
+            "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
+        );
+        write(
+            root,
+            "hubs/a.md",
+            "---\nsummary: s\nanchors:\n  - claim: add sums\n    at: src/m.rs > add\n---\n",
+        );
+
+        let ws = Workspace::discover(root).unwrap();
+        let report = verify_all(&ws, None, false).unwrap();
+
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["stamped"], 1);
+        let anchor = json["anchors"][0].as_object().unwrap();
+        for key in ["hub", "at", "outcome"] {
+            assert!(
+                anchor.contains_key(key),
+                "missing key `{key}` in {anchor:?}"
+            );
+        }
+        assert_eq!(anchor["outcome"], "stamped");
+
+        // Side effect intact: the hub file was stamped.
+        let hub = parse_hub(&fs::read_to_string(root.join("hubs/a.md")).unwrap()).unwrap();
+        assert!(hub.frontmatter.anchors[0].hash.is_some());
     }
 }

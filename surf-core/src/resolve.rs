@@ -244,6 +244,108 @@ pub(crate) fn collect_all_defs<'a>(
     }
 }
 
+/// Top-level public *functions* on a file's surface: unrestricted `pub fn` in Rust,
+/// `export`ed functions in TS/JS, non-underscore `def`s in Python, capitalized `func`s in Go.
+/// Advisory input to lint's under-coverage warning. Deliberately functions only — a claim
+/// documents *behavior* that can drift, so pure data types (structs/enums/consts) are out of
+/// scope to avoid the over-anchoring fatigue of §8. Shallow (top-level) and best-effort.
+pub fn public_fns(source: &str, lang: Lang) -> Vec<String> {
+    let Some(tree) = parse_tree(source, lang) else {
+        return Vec::new();
+    };
+    let src = source.as_bytes();
+    let family = lang.family();
+    let mut out = Vec::new();
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        collect_public_fn(child, src, family, &mut out);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_public_fn(node: Node, src: &[u8], family: Family, out: &mut Vec<String>) {
+    match family {
+        Family::Rust => {
+            if node.kind() == "function_item" && is_rust_pub(node, src) {
+                if let Some(name) = field_text(node, "name", src) {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        Family::TypeScript => {
+            if node.kind() == "export_statement" {
+                let mut cursor = node.walk();
+                for c in node.named_children(&mut cursor) {
+                    ts_collect_export_fns(c, src, out);
+                }
+            }
+        }
+        Family::Python => collect_python_fn(node, src, out),
+        Family::Go => {
+            if node.kind() == "function_declaration" {
+                if let Some(name) = field_text(node, "name", src) {
+                    if name.chars().next().is_some_and(char::is_uppercase) {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// True only for unrestricted `pub` — `pub(crate)`/`pub(super)`/`pub(in …)` are internal and
+/// not part of the file's outward surface.
+fn is_rust_pub(node: Node, src: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    let is_pub = node
+        .children(&mut cursor)
+        .filter(|c| c.kind() == "visibility_modifier")
+        .any(|c| c.utf8_text(src).map(str::trim) == Ok("pub"));
+    is_pub
+}
+
+fn ts_collect_export_fns(node: Node, src: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "function_declaration" | "generator_function_declaration" | "function_signature" => {
+            if let Some(name) = field_text(node, "name", src) {
+                out.push(name.to_string());
+            }
+        }
+        // `export const f = () => {}` — only the function-valued declarators.
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            for c in node.named_children(&mut cursor) {
+                if let Some(name) = ts_def_name(c, src) {
+                    out.push(name);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_python_fn(node: Node, src: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "function_definition" => {
+            if let Some(name) = python_def_name(node, src) {
+                if !name.starts_with('_') {
+                    out.push(name);
+                }
+            }
+        }
+        "decorated_definition" => {
+            let mut cursor = node.walk();
+            for c in node.named_children(&mut cursor) {
+                collect_python_fn(c, src, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn field_text<'a>(node: Node, field: &str, src: &'a [u8]) -> Option<&'a str> {
     node.child_by_field_name(field)?.utf8_text(src).ok()
 }
@@ -342,5 +444,42 @@ fn scope_of(node: Node, family: Family) -> Node {
             node.child_by_field_name("value").unwrap_or(node)
         }
         _ => node.child_by_field_name("body").unwrap_or(node),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn syms(source: &str, lang: Lang) -> Vec<String> {
+        public_fns(source, lang)
+    }
+
+    #[test]
+    fn rust_only_unrestricted_pub_fns() {
+        // Functions only; private, `pub(crate)`, and non-fn items (struct/enum/impl) excluded.
+        let src = "pub fn a() {}\nfn b() {}\npub(crate) fn c() {}\npub struct S;\nenum E {}\nimpl S { pub fn m(&self) {} }\n";
+        assert_eq!(syms(src, Lang::Rust), vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn ts_only_exported_fns() {
+        let src = "export function a() {}\nfunction b() {}\nexport const c = () => {};\nexport class D {}\nexport const e = 1;\n";
+        assert_eq!(
+            syms(src, Lang::TypeScript),
+            vec!["a".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn python_only_nonunderscore_defs() {
+        let src = "def a():\n    pass\ndef _b():\n    pass\nclass C:\n    pass\n";
+        assert_eq!(syms(src, Lang::Python), vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn go_only_capitalized_funcs() {
+        let src = "package p\nfunc Exported() {}\nfunc unexported() {}\ntype Foo struct{}\n";
+        assert_eq!(syms(src, Lang::Go), vec!["Exported".to_string()]);
     }
 }
