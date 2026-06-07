@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-07
+
+### Documentation
+- Precisely scope "cosmetic" (#21): a literal *value* is part of the hashed AST, so editing a
+  string literal — including user-facing copy — inside an anchored span trips the gate.
+  "Cosmetic" means only whitespace, comments, and consistent renames. Added a FAQ entry and a
+  note to anchor the narrowest symbol so unrelated literal edits don't re-open a claim.
+
 ## [0.2.0] - 2026-06-07
 
 ### Added
@@ -60,7 +68,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Connorrmcd6/surface/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Connorrmcd6/surface/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Connorrmcd6/surface/releases/tag/v0.1.0
