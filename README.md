@@ -80,6 +80,8 @@ The clever part is what counts as "meaningfully change." Surface compares the *c
 
 Quiet on cosmetics, loud on logic. That's the entire reason this beats grepping diffs or eyeballing it in review.
 
+"Cosmetic" is precise, and narrower than it sounds: it means *things that aren't in the syntax tree or are normalized out of it* — whitespace, comments, and consistent identifier renames. It does **not** mean "changes that look unimportant." A **literal value is part of the logic**, so editing a string literal — even user-facing copy — inside an anchored span changes the hash and trips the gate. That's deliberate (a string can carry behavior), but on a large anchor a one-word copy tweak re-opens the whole claim. Anchor the *smallest* symbol the sentence is about so an unrelated literal edit doesn't force a re-read (see [authoring hubs](docs/guides/authoring-hubs.md)).
+
 ## What Surface does NOT do
 
 Read this part. It's the difference between a tool you trust and one that burns you.
@@ -309,6 +311,13 @@ is what's enforced in CI.
 
 **Does it slow CI down?** No. It parses and hashes a handful of spans — I/O-bound, not
 compute-bound. No model, no network, no API key.
+
+**Will editing a string literal trip the gate?** Yes. Literal *values* are part of the hashed
+logic, so changing a string — even user-facing copy — inside an anchored span fires a
+divergence. "Cosmetic" means whitespace, comments, and consistent renames, not "edits that feel
+unimportant." If copy churn re-opens a claim too often, that's a sign the anchor is too coarse —
+anchor a narrower symbol. (A magnitude-aware policy / `--ignore-literals` knob is tracked for a
+future release.)
 
 **What languages?** TypeScript, JavaScript/JSX, Rust, Python, and Go today, via bundled
 tree-sitter grammars. More are a build-time addition to the binary, never a runtime dependency.
