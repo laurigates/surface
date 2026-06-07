@@ -1,13 +1,14 @@
 use clap::{Parser, Subcommand};
 
 mod check;
+mod format;
 mod init;
 mod lint;
 mod new;
 mod verify;
 mod workspace;
 
-use check::Format;
+use format::Format;
 use workspace::Workspace;
 
 const SCOPE_DISCLAIMER: &str = "\
@@ -37,15 +38,24 @@ enum Command {
         name: String,
     },
     /// Validate hub frontmatter and that every anchor resolves to exactly one symbol.
-    Lint,
+    Lint {
+        /// Output format for the findings.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
+    },
     /// The gate: hash each anchored span and block on any documented span that diverged.
     Check {
         /// Output format for the divergence report.
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
-        /// Git ref to recover previous code from for advisory old_code/magnitude.
-        #[arg(long, default_value = "HEAD")]
-        base: String,
+        /// Git ref to diff against: scopes the check to claims whose files changed since the
+        /// merge base, and recovers previous code for advisory old_code/magnitude. Omit for a
+        /// full check (enrichment falls back to HEAD).
+        #[arg(long)]
+        base: Option<String>,
+        /// Only evaluate claims whose anchored file(s) match one of these globs.
+        #[arg(long, value_delimiter = ',')]
+        files: Vec<String>,
     },
     /// Re-hash an anchor after a human confirms the prose still holds.
     Verify {
@@ -54,6 +64,9 @@ enum Command {
         /// Re-point a renamed single-segment anchor to its new symbol, then re-hash.
         #[arg(long)]
         follow: bool,
+        /// Output format for the verify report.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
     },
 }
 
@@ -80,8 +93,16 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
     match cli.command {
         Command::Init => unreachable!("handled before discovery"),
         Command::New { name } => new::run(&ws, &name),
-        Command::Lint => lint::run(&ws),
-        Command::Check { format, base } => check::run(&ws, format, &base),
-        Command::Verify { target, follow } => verify::run(&ws, target.as_deref(), follow),
+        Command::Lint { format } => lint::run(&ws, format),
+        Command::Check {
+            format,
+            base,
+            files,
+        } => check::run(&ws, format, base.as_deref(), &files),
+        Command::Verify {
+            target,
+            follow,
+            format,
+        } => verify::run(&ws, target.as_deref(), follow, format),
     }
 }

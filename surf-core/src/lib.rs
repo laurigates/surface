@@ -16,6 +16,6 @@ pub use hub::{parse_hub, set_anchor_at, set_anchor_hash, At, Claim, Frontmatter,
 pub use lang::Lang;
 pub use rename::find_renamed;
 pub use report::{Divergence, DivergenceKind};
-pub use resolve::{resolve, ResolveError, Span};
+pub use resolve::{public_fns, resolve, ResolveError, Span};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

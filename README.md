@@ -235,9 +235,9 @@ surf check --format json
 
 - `surf init` — bootstrap a workspace: write `surf.toml` and create the hubs directory (idempotent).
 - `surf new <name>` — scaffold a new empty hub under your hubs directory.
-- `surf lint` — validate frontmatter and that every `at:` resolves to exactly one symbol. Warns on a renamed symbol (suggests `verify --follow`); blocks on ambiguous or vanished anchors.
-- `surf check [--format human|json] [--base <ref>]` — the gate. AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any divergence. `--base` (default `HEAD`) is the git ref used to recover the advisory `old_code` / `magnitude` fields.
-- `surf verify [<at>] [--follow]` — re-seal after you've confirmed the prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor; `--follow` re-points a renamed single-symbol anchor and re-hashes in one step.
+- `surf lint [--format human|json]` — validate frontmatter and that every `at:` resolves to exactly one symbol. Warns on a renamed symbol (suggests `verify --follow`); blocks on ambiguous or vanished anchors. Also emits advisory granularity warnings (never blocking, §8): a near-whole-file anchor span, a hub with too many anchors, and public functions in an anchored file that no claim covers.
+- `surf check [--format human|json] [--base <ref>] [--files <globs>]` — the gate. AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any divergence. By default every claim is checked. `--base <ref>` scopes to claims whose anchored files changed since the merge base **and** recovers the advisory `old_code` / `magnitude` fields from that ref (omit it for a full check with enrichment against `HEAD`). `--files <globs>` scopes to claims whose anchored file(s) match a comma-separated glob (e.g. `surf-core/**`).
+- `surf verify [<at>] [--follow] [--format human|json]` — re-seal after you've confirmed the prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor; `--follow` re-points a renamed single-symbol anchor and re-hashes in one step.
 
 ## Configuration
 

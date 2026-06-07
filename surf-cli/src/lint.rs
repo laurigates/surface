@@ -1,29 +1,42 @@
 //! `surf lint` (§9.1.2): every anchor must resolve to exactly one symbol. Ambiguous or
 //! vanished anchors block; a symbol that was merely renamed (detected via stored-hash
-//! match, §6.4) only warns and points at `surf verify --follow`.
+//! match, §6.4) only warns and points at `surf verify --follow`. It also emits advisory
+//! granularity warnings (§8): anchors that span (nearly) a whole file, hubs with too many
+//! anchors, and exported symbols in an anchored file that no claim covers.
 
+use crate::format::Format;
 use crate::workspace::Workspace;
 use anyhow::{Context, Result};
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use surf_core::{find_renamed, parse_anchor, parse_hub, resolve, Lang, ResolveError};
+use surf_core::{find_renamed, parse_anchor, parse_hub, public_fns, resolve, Lang, ResolveError};
 
-#[derive(Debug, PartialEq, Eq)]
+/// Over an anchored span this fraction of its file, the anchor is "whole-file-ish" and any
+/// edit re-triggers verification — the over-anchoring tension of §8.
+const COARSE_SPAN_FRACTION_PCT: usize = 75;
+const COARSE_MIN_FILE_LINES: usize = 15;
+/// Past this many anchors a hub invites rubber-stamping during a bulk `verify` (§8).
+const MAX_ANCHORS_PER_HUB: usize = 12;
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Severity {
     Block,
     Warn,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Finding {
     pub severity: Severity,
     pub hub: String,
-    pub claim: String,
     pub at: String,
     pub message: String,
+    pub claim: String,
 }
 
-pub fn run(ws: &Workspace) -> Result<ExitCode> {
+pub fn run(ws: &Workspace, format: Format) -> Result<ExitCode> {
     let findings = lint_workspace(ws)?;
     let blocks = findings
         .iter()
@@ -31,7 +44,20 @@ pub fn run(ws: &Workspace) -> Result<ExitCode> {
         .count();
     let warns = findings.len() - blocks;
 
-    for f in &findings {
+    match format {
+        Format::Json => println!("{}", serde_json::to_string_pretty(&findings)?),
+        Format::Human => print_human(&findings, blocks, warns),
+    }
+
+    Ok(if blocks > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+fn print_human(findings: &[Finding], blocks: usize, warns: usize) {
+    for f in findings {
         let tag = match f.severity {
             Severity::Block => "error",
             Severity::Warn => "warning",
@@ -46,12 +72,6 @@ pub fn run(ws: &Workspace) -> Result<ExitCode> {
     } else {
         println!("surf lint: {blocks} error(s), {warns} warning(s).");
     }
-
-    Ok(if blocks > 0 {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
 }
 
 fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
@@ -79,9 +99,15 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
             }
         };
 
+        // Per anchored file: the first-segment names a hub's claims cover, and whether every
+        // anchor in it resolved cleanly. Under-coverage only runs on healthy files — piling
+        // coverage nags onto a hub with broken anchors would just be noise.
+        let mut covered: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut unhealthy: HashSet<String> = HashSet::new();
+
         for claim in &hub.frontmatter.anchors {
             for site in claim.at.sites() {
-                lint_site(
+                let outcome = lint_site(
                     ws,
                     &rel,
                     &claim.claim,
@@ -89,10 +115,45 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
                     claim.hash.as_deref(),
                     &mut findings,
                 );
+                if let Some(info) = outcome {
+                    if info.resolved {
+                        covered.entry(info.file).or_default().insert(info.first_seg);
+                    } else {
+                        unhealthy.insert(info.file);
+                    }
+                }
             }
+        }
+
+        if hub.frontmatter.anchors.len() > MAX_ANCHORS_PER_HUB {
+            findings.push(Finding {
+                severity: Severity::Warn,
+                hub: rel.clone(),
+                claim: String::new(),
+                at: String::new(),
+                message: format!(
+                    "{} anchors in one hub (> {MAX_ANCHORS_PER_HUB}) — consider splitting; bulk verify of a long list invites rubber-stamping",
+                    hub.frontmatter.anchors.len()
+                ),
+            });
+        }
+
+        for (file, covered_names) in &covered {
+            if unhealthy.contains(file) {
+                continue;
+            }
+            lint_under_coverage(ws, &rel, file, covered_names, &mut findings);
         }
     }
     Ok(findings)
+}
+
+/// What `lint_site` learned about one anchor site: which file/symbol it names and whether it
+/// resolved cleanly. `None` when the site can't even be attributed to a file (unparseable).
+struct SiteInfo {
+    file: String,
+    first_seg: String,
+    resolved: bool,
 }
 
 fn lint_site(
@@ -102,7 +163,7 @@ fn lint_site(
     site: &str,
     stored_hash: Option<&str>,
     findings: &mut Vec<Finding>,
-) {
+) -> Option<SiteInfo> {
     let mut block = |message: String| {
         findings.push(Finding {
             severity: Severity::Block,
@@ -115,44 +176,129 @@ fn lint_site(
 
     let anchor = match parse_anchor(site) {
         Ok(a) => a,
-        Err(e) => return block(format!("invalid anchor: {e}")),
+        Err(e) => {
+            block(format!("invalid anchor: {e}"));
+            return None;
+        }
     };
+    let first_seg = anchor
+        .segments
+        .first()
+        .map(|s| s.name.clone())
+        .unwrap_or_default();
+    let unresolved = |resolved: bool| {
+        Some(SiteInfo {
+            file: anchor.file.clone(),
+            first_seg: first_seg.clone(),
+            resolved,
+        })
+    };
+
     let Some(lang) = Lang::from_path(&anchor.file) else {
-        return block(format!("unsupported file type: {}", anchor.file));
+        block(format!("unsupported file type: {}", anchor.file));
+        return unresolved(false);
     };
     let path: PathBuf = ws.root.join(&anchor.file);
     let source = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            return block(format!(
+            block(format!(
                 "cannot read `{}` (file moved or removed?)",
                 anchor.file
-            ))
+            ));
+            return unresolved(false);
         }
     };
 
     match resolve(&source, lang, &anchor) {
-        Ok(_) => {}
-        Err(ResolveError::Ambiguous { segment, count }) => {
-            block(format!("`{segment}` is ambiguous ({count} matches); disambiguate with `@N`"));
+        Ok(span) => {
+            lint_coarse_span(hub, claim, site, &anchor.file, &source, span, findings);
+            unresolved(true)
         }
-        Err(ResolveError::Parse) => block(format!("could not parse `{}`", anchor.file)),
-        Err(ResolveError::NotFound { segment }) => match stored_hash {
-            Some(h) => match find_renamed(&source, lang, h) {
-                Ok(Some(new_name)) => findings.push(Finding {
-                    severity: Severity::Warn,
-                    hub: hub.to_string(),
-                    claim: claim.to_string(),
-                    at: site.to_string(),
-                    message: format!(
-                        "`{segment}` not found, but its code appears to live under `{new_name}` now — run `surf verify --follow`"
-                    ),
-                }),
-                Ok(None) => block(format!("`{segment}` not found and no current symbol matches the stored hash — the claim points at nothing")),
-                Err(e) => block(format!("`{segment}` not found; rename check failed: {e}")),
-            },
-            None => block(format!("`{segment}` not found (claim has no stored hash to match against)")),
-        },
+        Err(ResolveError::Ambiguous { segment, count }) => {
+            block(format!(
+                "`{segment}` is ambiguous ({count} matches); disambiguate with `@N`"
+            ));
+            unresolved(false)
+        }
+        Err(ResolveError::Parse) => {
+            block(format!("could not parse `{}`", anchor.file));
+            unresolved(false)
+        }
+        Err(ResolveError::NotFound { segment }) => {
+            match stored_hash {
+                Some(h) => match find_renamed(&source, lang, h) {
+                    Ok(Some(new_name)) => findings.push(Finding {
+                        severity: Severity::Warn,
+                        hub: hub.to_string(),
+                        claim: claim.to_string(),
+                        at: site.to_string(),
+                        message: format!(
+                            "`{segment}` not found, but its code appears to live under `{new_name}` now — run `surf verify --follow`"
+                        ),
+                    }),
+                    Ok(None) => block(format!("`{segment}` not found and no current symbol matches the stored hash — the claim points at nothing")),
+                    Err(e) => block(format!("`{segment}` not found; rename check failed: {e}")),
+                },
+                None => block(format!("`{segment}` not found (claim has no stored hash to match against)")),
+            }
+            unresolved(false)
+        }
+    }
+}
+
+fn lint_coarse_span(
+    hub: &str,
+    claim: &str,
+    site: &str,
+    file: &str,
+    source: &str,
+    span: surf_core::Span,
+    findings: &mut Vec<Finding>,
+) {
+    let span_lines = span.end_line.saturating_sub(span.start_line) + 1;
+    let file_lines = source.lines().count().max(1);
+    if file_lines >= COARSE_MIN_FILE_LINES
+        && span_lines * 100 >= file_lines * COARSE_SPAN_FRACTION_PCT
+    {
+        let pct = span_lines * 100 / file_lines;
+        findings.push(Finding {
+            severity: Severity::Warn,
+            hub: hub.to_string(),
+            claim: claim.to_string(),
+            at: site.to_string(),
+            message: format!(
+                "anchored span covers {pct}% of {file} ({span_lines}/{file_lines} lines) — a near-whole-file anchor re-triggers verification on any edit; point at a narrower symbol"
+            ),
+        });
+    }
+}
+
+fn lint_under_coverage(
+    ws: &Workspace,
+    hub: &str,
+    file: &str,
+    covered: &HashSet<String>,
+    findings: &mut Vec<Finding>,
+) {
+    let Some(lang) = Lang::from_path(file) else {
+        return;
+    };
+    let Ok(source) = std::fs::read_to_string(ws.root.join(file)) else {
+        return;
+    };
+    for sym in public_fns(&source, lang) {
+        if !covered.contains(&sym) {
+            findings.push(Finding {
+                severity: Severity::Warn,
+                hub: hub.to_string(),
+                claim: String::new(),
+                at: format!("{file} > {sym}"),
+                message: format!(
+                    "public function `{sym}` in {file} has no claim in this hub — add an anchor or accept it as intentionally undocumented"
+                ),
+            });
+        }
     }
 }
 
@@ -238,6 +384,24 @@ mod tests {
     }
 
     #[test]
+    fn findings_serialize_with_expected_keys() {
+        let (_t, ws) = ws_with(&[
+            ("src/auth.rs", "pub fn greet() {}\n"),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: ghost\n    at: src/auth.rs > ghost\n---\n",
+            ),
+        ]);
+        let findings = lint_workspace(&ws).unwrap();
+        let json = serde_json::to_value(&findings).unwrap();
+        let obj = json[0].as_object().unwrap();
+        for key in ["severity", "hub", "at", "message", "claim"] {
+            assert!(obj.contains_key(key), "missing key `{key}` in {obj:?}");
+        }
+        assert_eq!(obj["severity"], "block");
+    }
+
+    #[test]
     fn renamed_symbol_warns_and_suggests_follow() {
         let new_src = "pub fn rotate_token(t: &str) -> String { t.to_string() }\n";
         let stored = rust_hash(new_src, "src/auth.rs > rotate_token");
@@ -251,5 +415,75 @@ mod tests {
         assert_eq!(f[0].severity, Severity::Warn);
         assert!(f[0].message.contains("rotate_token"));
         assert!(f[0].message.contains("--follow"));
+    }
+
+    #[test]
+    fn under_coverage_warns_for_unanchored_export() {
+        let (_t, ws) = ws_with(&[
+            (
+                "src/m.rs",
+                "pub fn a() {}\npub fn b() {}\nfn private() {}\n",
+            ),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: a does\n    at: src/m.rs > a\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        // Only the exported-but-unanchored `b`; the private fn and the covered `a` are silent.
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].severity, Severity::Warn);
+        assert!(f[0].message.contains("`b`"), "{}", f[0].message);
+    }
+
+    #[test]
+    fn broken_anchor_suppresses_under_coverage() {
+        // `ghost` blocks, so the file is unhealthy and `b` is NOT additionally flagged.
+        let (_t, ws) = ws_with(&[
+            ("src/m.rs", "pub fn a() {}\npub fn b() {}\n"),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: c\n    at: src/m.rs > ghost\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].severity, Severity::Block);
+    }
+
+    #[test]
+    fn coarse_span_warns_on_whole_file_anchor() {
+        let body: String = (0..40).map(|i| format!("    let x{i} = {i};\n")).collect();
+        let src = format!("pub fn big() {{\n{body}}}\n");
+        let (_t, ws) = ws_with(&[
+            ("src/m.rs", src.as_str()),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: big does\n    at: src/m.rs > big\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].severity, Severity::Warn);
+        assert!(f[0].message.contains("whole-file"), "{}", f[0].message);
+    }
+
+    #[test]
+    fn too_many_anchors_warns() {
+        let mut src = String::new();
+        let mut anchors = String::new();
+        for i in 0..=MAX_ANCHORS_PER_HUB {
+            src.push_str(&format!("pub fn f{i}() {{}}\n"));
+            anchors.push_str(&format!("  - claim: c{i}\n    at: src/m.rs > f{i}\n"));
+        }
+        let hub = format!("---\nsummary: x\nanchors:\n{anchors}---\n");
+        let (_t, ws) = ws_with(&[("src/m.rs", src.as_str()), ("hubs/a.md", hub.as_str())]);
+
+        let f = lint_workspace(&ws).unwrap();
+        assert!(
+            f.iter()
+                .any(|x| x.severity == Severity::Warn && x.message.contains("anchors in one hub")),
+            "expected a too-many-anchors warning, got {f:?}"
+        );
     }
 }

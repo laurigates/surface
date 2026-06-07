@@ -6,7 +6,9 @@ branding:
 
 # Consumers: a plain `actions/checkout@v4` is enough — do NOT set `fetch-depth: 0`.
 # The verdict only needs the working tree; git history is used solely for the advisory
-# old_code/magnitude enrichment in the JSON report.
+# old_code/magnitude enrichment in the JSON report. If you pass `check --base <ref>` to
+# diff-scope the gate to changed files, fetch enough history to reach the merge base (a
+# shallow `git fetch <ref>` is plenty) — still not `fetch-depth: 0`.
 
 inputs:
   args:
