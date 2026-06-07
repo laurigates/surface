@@ -10,11 +10,17 @@ from under the prose. **This repo dogfoods Surface on its own source** — the g
 
 ## Where the context lives: `hubs/`
 
-Read [`hubs/`](./hubs/) first. Each hub is markdown prose describing an invariant of this
-codebase, with frontmatter anchoring the claim to a specific symbol. Unlike code comments,
-**hub prose is sealed by `surf check`** — if the anchored code changed since a human last
-confirmed the prose, the gate fails. So the hubs are trustworthy and current in a way comments
-are not. They are the fastest accurate way to understand how a part of the system works.
+[`hubs/`](./hubs/) is the governed context for this codebase. Each hub is markdown prose
+describing an invariant, with frontmatter anchoring the claim to a specific symbol. Unlike code
+comments, **hub prose is sealed by `surf check`** — if the anchored code changed since a human
+last confirmed the prose, the gate fails. So the hubs are trustworthy and current in a way
+comments are not, and they are the fastest accurate way to understand a part of the system.
+
+**Read only the hubs you need — not the whole directory.** The hubs together describe the entire
+codebase; reading all of them is wasteful context. They are split per module
+(`hubs/cli-check.md`, `hubs/hash.md`, `hubs/resolve.md`, …), and each starts with a one-line
+`summary:` in its frontmatter. Scan the filenames and summaries, then open only the hub(s)
+covering the area you're working on.
 
 Caveat (the tool's own honest limit): a green gate means *the anchored code hasn't changed
 since last verified* — not that every sentence is true, and nothing about code no hub anchored.
@@ -40,7 +46,7 @@ tool exists to prevent. Verify means "I read the prose and it is still true."
 
 ## Pointers
 
-- [`hubs/`](./hubs/) — governed context for this codebase (read first).
+- [`hubs/`](./hubs/) — governed context, split per module; read only the hub(s) you need.
 - [`CHANGELOG.md`](./CHANGELOG.md) — what changed; update `[Unreleased]`.
 - [`docs/index.md`](./docs/index.md) — documentation map (guides, reference, concepts).
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — build, test, format, lint commands and layout.
