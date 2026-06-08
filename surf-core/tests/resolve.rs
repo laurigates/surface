@@ -158,6 +158,27 @@ fn python_not_found_is_distinct() {
     ));
 }
 
+#[test]
+fn python_module_constant_resolves() {
+    let s = span(PY, Lang::Python, "auth.py > RETRYABLE_STATUS_CODES");
+    assert!(snippet(PY, s).contains("frozenset({429, 500, 502, 503, 504})"));
+}
+
+#[test]
+fn python_type_alias_resolves() {
+    let s = span(PY, Lang::Python, "auth.py > Chain");
+    assert!(snippet(PY, s).contains("Literal[\"arbitrum\""));
+}
+
+#[test]
+fn python_class_attribute_resolves() {
+    // Annotation-only attribute (no value) and an annotated assignment, both class-level.
+    let a = span(PY, Lang::Python, "auth.py > RateLimitError > retry_after");
+    assert!(snippet(PY, a).contains("retry_after: float | None"));
+    let b = span(PY, Lang::Python, "auth.py > RateLimitError > code");
+    assert!(snippet(PY, b).contains("code: int = 429"));
+}
+
 // --- Go ---------------------------------------------------------------------
 
 #[test]

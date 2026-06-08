@@ -7,6 +7,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-08
+
+### Added
+- Python: `at:` now resolves **non-callable** symbols — module-level constants and type aliases
+  (`X = …`, `X: T = …`, PEP 695 `type X = …`) and class-level attributes (`Class > attr`,
+  including annotation-only). Previously only functions, methods, and classes resolved (#28).
+- Per-claim `ignore_literals: true` frontmatter option — excludes string-literal *content* from a
+  claim's hash so a copy edit inside the anchored span no longer re-opens the gate. Logic edits
+  (operators, numbers, structure) are still caught. The stored hash is computed in this mode, so
+  it travels with the claim rather than a CLI flag (#21).
+- `surf verify --follow` and `surf lint` now follow **file renames** via git rename detection:
+  a moved file makes `lint` warn (and point at `--follow`) instead of hard-blocking, and
+  `--follow` rewrites the anchor's path — only when the code is otherwise unchanged. Best-effort
+  and git-dependent; the deterministic `surf check` verdict never depends on it (#3).
+
+### Changed
+- Python decorators are now part of an anchored function/class's hashed span, and a decorator's
+  *name* is kept verbatim (not alpha-renamed) — so adding/removing a decorator, changing its
+  arguments, or swapping it (`@cache` → `@lru_cache`, `@staticmethod` → `@classmethod`) trips the
+  gate. Previously decorators were excluded from the span entirely (#8).
+- **Breaking (JSON):** `surf check --format json` now emits a versioned envelope
+  `{ "version": 1, "divergences": [...] }` instead of a bare array. The contract is additive-only
+  within a major version; a breaking change bumps `version`. Consumers should read
+  `.divergences` and tolerate unknown fields (#16).
+
 ## [0.2.1] - 2026-06-07
 
 ### Documentation
@@ -68,7 +93,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Connorrmcd6/surface/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Connorrmcd6/surface/compare/v0.1.0...v0.1.1

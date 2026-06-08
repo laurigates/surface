@@ -29,6 +29,11 @@ pub struct Claim {
     /// The stored AST-canonical hash. `None` until `surf verify` first stamps it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    /// Opt-in: exclude string-literal *content* from this claim's hash, so a copy edit inside
+    /// the anchored span doesn't re-open the gate (§6.1). The stored hash is computed in this
+    /// mode, so it must travel with the claim. Defaults to `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignore_literals: bool,
 }
 
 /// One anchor (`at:`) is either a single span or a list; the claim is stale if *any*

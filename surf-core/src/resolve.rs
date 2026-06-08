@@ -46,8 +46,24 @@ impl std::error::Error for ResolveError {}
 
 pub fn resolve(source: &str, lang: Lang, anchor: &Anchor) -> Result<Span, ResolveError> {
     let tree = parse_tree(source, lang).ok_or(ResolveError::Parse)?;
-    let node = resolve_node(tree.root_node(), source.as_bytes(), lang.family(), anchor)?;
-    Ok(span_of(node))
+    let family = lang.family();
+    let node = resolve_node(tree.root_node(), source.as_bytes(), family, anchor)?;
+    Ok(span_of(hashable_node(node, family)))
+}
+
+/// The node whose span/tokens represent a resolved symbol. Resolution keys off the inner
+/// definition node (it carries the `name`), but in tree-sitter-python a decorated
+/// function/class excludes its decorators — they live in the parent `decorated_definition`.
+/// Widen to that parent so a decorator-only change is part of the hash (§6.1). Applied at the
+/// two chokepoints (span here, tokens in `hash`) so every hash of the same symbol agrees.
+pub(crate) fn hashable_node(node: Node, family: Family) -> Node {
+    match family {
+        Family::Python if matches!(node.kind(), "function_definition" | "class_definition") => node
+            .parent()
+            .filter(|p| p.kind() == "decorated_definition")
+            .unwrap_or(node),
+        _ => node,
+    }
 }
 
 pub(crate) fn parse_tree(source: &str, lang: Lang) -> Option<Tree> {
@@ -364,6 +380,22 @@ fn python_def_name(node: Node, src: &[u8]) -> Option<String> {
         "function_definition" | "class_definition" => {
             field_text(node, "name", src).map(str::to_string)
         }
+        // Module- or class-level bindings: `X = ...`, `X: T = ...`, `X: T`. Only a bare
+        // identifier target is anchorable — tuple/attribute targets (`a, b = ...`, `self.x = ...`)
+        // have no single unambiguous name.
+        "assignment" => {
+            let left = node.child_by_field_name("left")?;
+            (left.kind() == "identifier")
+                .then(|| left.utf8_text(src).ok())
+                .flatten()
+                .map(str::to_string)
+        }
+        // PEP 695 `type X = ...` — `left` is a `type` wrapping the alias name.
+        "type_alias_statement" => node
+            .child_by_field_name("left")?
+            .utf8_text(src)
+            .ok()
+            .map(str::to_string),
         _ => None,
     }
 }
@@ -430,7 +462,10 @@ fn is_transparent(kind: &str, family: Family) -> bool {
                 | "lexical_declaration"
                 | "variable_declaration"
         ),
-        Family::Python => matches!(kind, "module" | "block" | "decorated_definition"),
+        Family::Python => matches!(
+            kind,
+            "module" | "block" | "decorated_definition" | "expression_statement"
+        ),
         Family::Go => matches!(
             kind,
             "source_file" | "block" | "type_declaration" | "const_declaration" | "var_declaration"

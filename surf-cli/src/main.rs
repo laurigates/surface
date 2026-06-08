@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod check;
 mod format;
+mod git;
 mod init;
 mod lint;
 mod new;

@@ -3,11 +3,13 @@ summary: surf verify — re-seal a claim after a human confirms the prose, with 
 anchors:
   - claim: >
       For each claim, plan_claim re-hashes every site (combined) when all resolve, returning
-      Unchanged when that hash already matches the stored one or Hash to re-stamp otherwise;
-      if a site fails to resolve it re-points a renamed single-segment anchor via find_renamed
-      under --follow, else skips with a reason. It never edits prose, only the hash/at line.
+      Unchanged when that hash already matches the stored one or Hash to re-stamp otherwise.
+      Under --follow, a site that no longer resolves re-points a renamed single-segment anchor
+      via find_renamed; a site whose file is unreadable asks git where it moved and re-points the
+      path (only when the code is otherwise unchanged). Otherwise it skips with a reason. It
+      never edits prose, only the hash/at line.
     at: surf-cli/src/verify.rs > plan_claim
-    hash: b44fea4ee5a8
+    hash: 6de72f5412b9
 refs: []
 ---
 

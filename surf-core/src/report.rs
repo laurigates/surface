@@ -4,9 +4,38 @@
 //! The verdict is carried by `old_hash` vs `new_hash`. `old_code` and `magnitude` are
 //! best-effort enrichment recovered from the previous source via git — advisory only,
 //! `None` when unavailable, and never part of the pass/fail decision.
+//!
+//! ## Stability
+//!
+//! The JSON output is a `CheckReport` envelope carrying `version` ([`REPORT_VERSION`]).
+//! Within a major version the contract is **additive-only**: new optional fields may be added,
+//! but existing fields are never removed, renamed, or repurposed. A breaking change bumps
+//! `version`. Consumers should tolerate unknown fields and check `version` for compatibility.
 
 use crate::hash::Magnitude;
 use serde::Serialize;
+
+/// Contract version of the `surf check --format json` envelope. Bumped only on a breaking change
+/// (field removal/rename/semantic change); additive changes keep the same version.
+pub const REPORT_VERSION: u32 = 1;
+
+/// The top-level `surf check --format json` payload: a version tag plus the divergences. The
+/// version lets downstream layers detect an incompatible contract instead of silently
+/// misreading a changed shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckReport {
+    pub version: u32,
+    pub divergences: Vec<Divergence>,
+}
+
+impl CheckReport {
+    pub fn new(divergences: Vec<Divergence>) -> Self {
+        CheckReport {
+            version: REPORT_VERSION,
+            divergences,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

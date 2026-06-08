@@ -1,8 +1,15 @@
-use surf_core::{diff_magnitude, hash_anchor, parse_anchor, Lang, Magnitude};
+use surf_core::{
+    diff_magnitude, hash_anchor, hash_anchor_with, parse_anchor, HashOpts, Lang, Magnitude,
+};
 
 fn h(src: &str, lang: Lang, anchor: &str) -> String {
     let a = parse_anchor(anchor).unwrap();
     hash_anchor(src, lang, &a).unwrap_or_else(|e| panic!("hash `{anchor}` failed: {e}"))
+}
+
+fn h_opts(src: &str, lang: Lang, anchor: &str, opts: HashOpts) -> String {
+    let a = parse_anchor(anchor).unwrap();
+    hash_anchor_with(src, lang, &a, opts).unwrap_or_else(|e| panic!("hash `{anchor}` failed: {e}"))
 }
 
 fn mag(old: &str, new: &str, lang: Lang, anchor: &str) -> Magnitude {
@@ -167,6 +174,76 @@ fn python_loud_on_operator_flip() {
     assert_ne!(
         h(PY_BASE, Lang::Python, "f.py > add"),
         h(flipped, Lang::Python, "f.py > add")
+    );
+}
+
+// --- Python: decorators are part of the hashed span (#8) -------------------
+
+#[test]
+fn python_loud_on_decorator_change() {
+    // In tree-sitter-python the decorator lives in the parent `decorated_definition`; the hash
+    // widens to it, so swapping or parameterizing a decorator changes the hash.
+    let base = "@cache\ndef f(x):\n    return x + 1\n";
+    let renamed_decorator = "@lru_cache\ndef f(x):\n    return x + 1\n";
+    let parameterized = "@lru_cache(maxsize=128)\ndef f(x):\n    return x + 1\n";
+    assert_ne!(
+        h(base, Lang::Python, "f.py > f"),
+        h(renamed_decorator, Lang::Python, "f.py > f")
+    );
+    assert_ne!(
+        h(renamed_decorator, Lang::Python, "f.py > f"),
+        h(parameterized, Lang::Python, "f.py > f")
+    );
+}
+
+#[test]
+fn python_decorated_still_quiet_on_reformat() {
+    let base = "@cache\ndef f(x):\n    return x + 1\n";
+    let reformatted = "@cache\ndef f(y):\n    # bump\n    return y  +  1\n";
+    assert_eq!(
+        h(base, Lang::Python, "f.py > f"),
+        h(reformatted, Lang::Python, "f.py > f")
+    );
+}
+
+// --- Per-claim ignore_literals (#21) ---------------------------------------
+
+#[test]
+fn ignore_literals_quiet_on_string_content() {
+    let ignore = HashOpts {
+        ignore_literals: true,
+    };
+    let base = "def notify(): return \"Nominate someone!\"\n";
+    let copy_edit = "def notify(): return \"Go nominate someone!\"\n";
+    // Default: a copy edit trips the gate.
+    assert_ne!(
+        h(base, Lang::Python, "f.py > notify"),
+        h(copy_edit, Lang::Python, "f.py > notify")
+    );
+    // ignore_literals: the copy edit is invisible.
+    assert_eq!(
+        h_opts(base, Lang::Python, "f.py > notify", ignore),
+        h_opts(copy_edit, Lang::Python, "f.py > notify", ignore)
+    );
+}
+
+#[test]
+fn ignore_literals_still_loud_on_logic() {
+    let ignore = HashOpts {
+        ignore_literals: true,
+    };
+    // Same string, but the comparison operator changes — still caught even when ignoring copy.
+    let base = "function gate(n: number): string { return n < 10 ? \"ok\" : \"no\"; }";
+    let logic = "function gate(n: number): string { return n <= 10 ? \"ok\" : \"no\"; }";
+    assert_ne!(
+        h_opts(base, Lang::TypeScript, "f.ts > gate", ignore),
+        h_opts(logic, Lang::TypeScript, "f.ts > gate", ignore)
+    );
+    // And a numeric constant change is still logic, not a literal we ignore.
+    let num = "function gate(n: number): string { return n < 20 ? \"ok\" : \"no\"; }";
+    assert_ne!(
+        h_opts(base, Lang::TypeScript, "f.ts > gate", ignore),
+        h_opts(num, Lang::TypeScript, "f.ts > gate", ignore)
     );
 }
 

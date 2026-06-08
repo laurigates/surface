@@ -17,7 +17,7 @@
 
 use crate::anchor::Anchor;
 use crate::lang::{Family, Lang};
-use crate::resolve::{parse_tree, resolve_node, ResolveError};
+use crate::resolve::{hashable_node, parse_tree, resolve_node, ResolveError};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -26,8 +26,25 @@ use tree_sitter::Node;
 
 const HASH_HEX_LEN: usize = 12;
 
+/// Per-claim hashing options. `ignore_literals` scopes string-literal *content* out of the
+/// token stream so a copy edit inside an anchored span doesn't re-open the gate (§6.1). It must
+/// match between the stored hash and the gate hash, so it lives on the claim, not a CLI flag.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HashOpts {
+    pub ignore_literals: bool,
+}
+
 pub fn hash_anchor(source: &str, lang: Lang, anchor: &Anchor) -> Result<String, ResolveError> {
-    Ok(hash_tokens(&anchor_tokens(source, lang, anchor)?))
+    hash_anchor_with(source, lang, anchor, HashOpts::default())
+}
+
+pub fn hash_anchor_with(
+    source: &str,
+    lang: Lang,
+    anchor: &Anchor,
+    opts: HashOpts,
+) -> Result<String, ResolveError> {
+    Ok(hash_tokens(&anchor_tokens(source, lang, anchor, opts)?))
 }
 
 /// One hash per claim from its per-site hashes (§6.3). A single site is the identity (so the
@@ -55,27 +72,40 @@ pub fn diff_magnitude(
     lang: Lang,
     anchor: &Anchor,
 ) -> Result<Magnitude, ResolveError> {
-    let old = anchor_tokens(old_source, lang, anchor)?;
-    let new = anchor_tokens(new_source, lang, anchor)?;
+    let old = anchor_tokens(old_source, lang, anchor, HashOpts::default())?;
+    let new = anchor_tokens(new_source, lang, anchor, HashOpts::default())?;
     Ok(categorize(token_distance(&old, &new)))
 }
 
-fn anchor_tokens(source: &str, lang: Lang, anchor: &Anchor) -> Result<Vec<String>, ResolveError> {
+fn anchor_tokens(
+    source: &str,
+    lang: Lang,
+    anchor: &Anchor,
+    opts: HashOpts,
+) -> Result<Vec<String>, ResolveError> {
     let tree = parse_tree(source, lang).ok_or(ResolveError::Parse)?;
     let src = source.as_bytes();
     let family = lang.family();
     let node = resolve_node(tree.root_node(), src, family, anchor)?;
-    Ok(canonical_tokens(node, src, family))
+    Ok(canonical_tokens(node, src, family, opts))
 }
 
-pub(crate) fn hash_node(node: Node, src: &[u8], family: Family) -> String {
-    hash_tokens(&canonical_tokens(node, src, family))
+pub(crate) fn hash_node(node: Node, src: &[u8], family: Family, opts: HashOpts) -> String {
+    hash_tokens(&canonical_tokens(node, src, family, opts))
 }
 
-fn canonical_tokens(node: Node, src: &[u8], family: Family) -> Vec<String> {
+fn canonical_tokens(node: Node, src: &[u8], family: Family, opts: HashOpts) -> Vec<String> {
     let mut out = Vec::new();
     let mut idents: HashMap<String, usize> = HashMap::new();
-    emit(node, src, family, &mut idents, &mut out);
+    emit(
+        hashable_node(node, family),
+        src,
+        family,
+        opts,
+        false,
+        &mut idents,
+        &mut out,
+    );
     out
 }
 
@@ -83,6 +113,12 @@ fn emit(
     node: Node,
     src: &[u8],
     family: Family,
+    opts: HashOpts,
+    // True while inside a decorator's *name* (the symbol being applied), where identifiers are
+    // kept verbatim rather than alpha-renamed — so `@cache` → `@lru_cache` or
+    // `@staticmethod` → `@classmethod` is caught (§6.1, #8). Arguments to a decorator follow the
+    // normal rules, so reformatting them stays quiet.
+    decorator_name: bool,
     idents: &mut HashMap<String, usize>,
     out: &mut Vec<String>,
 ) {
@@ -94,17 +130,34 @@ fn emit(
     if node.is_named() {
         if is_identifier(kind, family) {
             let text = node.utf8_text(src).unwrap_or_default();
-            let next = idents.len();
-            let idx = *idents.entry(text.to_string()).or_insert(next);
-            out.push(format!("#{idx}"));
+            if decorator_name {
+                out.push(format!("{kind}:{text}"));
+            } else {
+                let next = idents.len();
+                let idx = *idents.entry(text.to_string()).or_insert(next);
+                out.push(format!("#{idx}"));
+            }
             return;
         }
         if node.child_count() == 0 {
-            // Named terminal (literal, primitive type, keyword-like): keep its value.
-            out.push(format!(
-                "{kind}:{}",
-                node.utf8_text(src).unwrap_or_default()
-            ));
+            // Named terminal (literal, primitive type, keyword-like): keep its value, unless the
+            // claim opted to ignore string-literal content — then emit only the kind so a copy
+            // edit is invisible while the literal's *presence* still counts.
+            if opts.ignore_literals && is_string_literal(kind, family) {
+                out.push(kind.to_string());
+            } else {
+                out.push(format!(
+                    "{kind}:{}",
+                    node.utf8_text(src).unwrap_or_default()
+                ));
+            }
+            return;
+        }
+        // A string that the grammar splits into child tokens (e.g. TS template strings, Python
+        // `string` with start/content/end). Drop the whole node when ignoring literals so its
+        // content children aren't emitted.
+        if opts.ignore_literals && is_string_literal(kind, family) {
+            out.push(kind.to_string());
             return;
         }
         out.push(kind.to_string());
@@ -114,9 +167,26 @@ fn emit(
         return;
     }
 
+    // Within a Python decorator, the name is literal; its argument list reverts to normal rules.
+    let child_decorator_name = match (family, kind) {
+        (Family::Python, "decorator") => true,
+        (Family::Python, "argument_list") => false,
+        _ => decorator_name,
+    };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        emit(child, src, family, idents, out);
+        emit(child, src, family, opts, child_decorator_name, idents, out);
+    }
+}
+
+/// String-literal node kinds per family (content only — numbers/bools stay logic). Used by the
+/// per-claim `ignore_literals` option.
+fn is_string_literal(kind: &str, family: Family) -> bool {
+    match family {
+        Family::Rust => matches!(kind, "string_literal" | "raw_string_literal"),
+        Family::TypeScript => matches!(kind, "string" | "template_string"),
+        Family::Python => kind == "string",
+        Family::Go => matches!(kind, "interpreted_string_literal" | "raw_string_literal"),
     }
 }
 

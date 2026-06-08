@@ -7,7 +7,7 @@ anchors:
       alpha-renames identifiers, a renamed-but-unchanged symbol still matches. No git, no
       similarity threshold.
     at: surf-core/src/rename.rs > find_renamed
-    hash: ad12a251a9fb
+    hash: e64045b383fb
 refs: []
 ---
 

@@ -29,3 +29,13 @@ def refresh(token):
 @staticmethod
 def cached():
     return 1
+
+
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+Chain = Literal["arbitrum", "avalanche", "ethereum"]
+
+
+class RateLimitError:
+    retry_after: float | None
+    code: int = 429

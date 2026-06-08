@@ -5,13 +5,13 @@
 //! previous source via `git show <base>:<path>` and are advisory only.
 
 use crate::format::Format;
+use crate::git;
 use crate::workspace::{read_site, Workspace};
 use anyhow::{Context, Result};
-use std::collections::HashSet;
-use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use surf_core::{
-    diff_magnitude, hash_anchor, parse_anchor, parse_hub, resolve, Divergence, DivergenceKind,
+    diff_magnitude, hash_anchor_with, parse_anchor, parse_hub, resolve, CheckReport, Divergence,
+    DivergenceKind, HashOpts,
 };
 
 pub fn run(
@@ -24,7 +24,8 @@ pub fn run(
 
     match format {
         Format::Json => {
-            println!("{}", serde_json::to_string_pretty(&divergences)?);
+            let report = CheckReport::new(divergences.clone());
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Format::Human => print_human(&divergences),
     }
@@ -74,7 +75,7 @@ fn check_workspace(
 /// Which claims `check` evaluates. Each active filter narrows the set; a claim must satisfy
 /// every active filter (intersection). With neither filter active, every claim is in scope.
 struct Scope {
-    changed: Option<HashSet<String>>,
+    changed: Option<std::collections::HashSet<String>>,
     globs: Vec<glob::Pattern>,
 }
 
@@ -82,7 +83,7 @@ impl Scope {
     fn build(ws: &Workspace, base: Option<&str>, files: &[String]) -> Scope {
         // A bad ref / non-repo yields None — we fall back to a full check rather than
         // silently checking nothing.
-        let changed = base.and_then(|b| git_changed_files(&ws.root, b));
+        let changed = base.and_then(|b| git::changed_files(&ws.root, b));
         let globs = files
             .iter()
             .filter_map(|p| glob::Pattern::new(p).ok())
@@ -121,6 +122,9 @@ fn check_claim(
     base: &str,
 ) -> Option<Divergence> {
     let prose = claim.claim.trim().to_string();
+    let opts = HashOpts {
+        ignore_literals: claim.ignore_literals,
+    };
     let sites = claim.at.sites();
     let at_display = sites.join("  +  ");
     let single = sites.len() == 1;
@@ -169,7 +173,7 @@ fn check_claim(
                 .get(span.start_byte..span.end_byte)
                 .map(str::to_string);
         }
-        site_hashes.push(hash_anchor(&current, lang, &anchor).ok()?);
+        site_hashes.push(hash_anchor_with(&current, lang, &anchor, opts).ok()?);
     }
     let new_hash = surf_core::combine_site_hashes(&site_hashes);
 
@@ -212,7 +216,7 @@ fn enrich_from_git(
     let Ok((current, lang, anchor)) = read_site(ws, site) else {
         return (None, None);
     };
-    let Some(old_source) = git_show(&ws.root, base, &anchor.file) else {
+    let Some(old_source) = git::show(&ws.root, base, &anchor.file) else {
         return (None, None);
     };
     let old_code = resolve(&old_source, lang, &anchor).ok().and_then(|sp| {
@@ -222,45 +226,6 @@ fn enrich_from_git(
     });
     let magnitude = diff_magnitude(&old_source, &current, lang, &anchor).ok();
     (old_code, magnitude)
-}
-
-/// Files changed between the merge base of `base`..HEAD and the working tree. Paths are
-/// repo-root-relative; they match `Anchor.file` (workspace-root-relative) when the
-/// workspace root is the repo root, the normal case. `None` if git can't answer.
-fn git_changed_files(root: &Path, base: &str) -> Option<HashSet<String>> {
-    let merge_base = Command::new("git")
-        .current_dir(root)
-        .args(["merge-base", base, "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        // Shallow clones may lack the merge base; diff against the ref directly.
-        .unwrap_or_else(|| base.to_string());
-
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(["diff", "--name-only", &merge_base])
-        .output()
-        .ok()?;
-    output.status.success().then(|| {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()
-    })
-}
-
-fn git_show(root: &Path, base: &str, rel_file: &str) -> Option<String> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(["show", &format!("{base}:{rel_file}")])
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn print_human(divergences: &[Divergence]) {
@@ -298,8 +263,9 @@ fn print_human(divergences: &[Divergence]) {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
-    use surf_core::{parse_anchor, Lang};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use surf_core::{hash_anchor, parse_anchor, Lang};
 
     fn write(root: &Path, rel: &str, content: &str) {
         let p = root.join(rel);
@@ -477,8 +443,9 @@ mod tests {
         );
 
         let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
-        let json = serde_json::to_value(&d).unwrap();
-        let obj = json[0].as_object().unwrap();
+        let json = serde_json::to_value(CheckReport::new(d)).unwrap();
+        assert_eq!(json["version"], surf_core::REPORT_VERSION);
+        let obj = json["divergences"][0].as_object().unwrap();
         for key in [
             "hub", "claim", "at", "kind", "old_hash", "new_hash", "new_code", "prose",
         ] {

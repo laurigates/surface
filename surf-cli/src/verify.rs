@@ -5,13 +5,14 @@
 //! when nothing changed, so a no-op verify leaves the file byte-identical.
 
 use crate::format::Format;
-use crate::workspace::{read_site, Workspace};
+use crate::git;
+use crate::workspace::{read_site, SiteError, Workspace};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::process::ExitCode;
 use surf_core::{
-    combine_site_hashes, find_renamed, hash_anchor, parse_anchor, parse_hub, set_anchor_at,
-    set_anchor_hash,
+    combine_site_hashes, find_renamed, hash_anchor_with, parse_anchor, parse_hub, set_anchor_at,
+    set_anchor_hash, HashOpts,
 };
 
 enum Plan {
@@ -177,11 +178,14 @@ fn verify_all(ws: &Workspace, target: Option<&str>, follow: bool) -> Result<Veri
 
 fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
     let sites = claim.at.sites();
+    let opts = HashOpts {
+        ignore_literals: claim.ignore_literals,
+    };
 
     let mut site_hashes = Vec::with_capacity(sites.len());
     let mut failure: Option<String> = None;
     for site in sites {
-        match site_hash(ws, site) {
+        match site_hash(ws, site, opts) {
             Ok(h) => site_hashes.push(h),
             Err(reason) => {
                 failure = Some(reason);
@@ -200,11 +204,11 @@ fn plan_claim(ws: &Workspace, claim: &surf_core::Claim, follow: bool) -> Plan {
             }
         }
         Some(reason) if !follow => Plan::Skip(reason),
-        Some(_) => plan_follow(ws, claim),
+        Some(_) => plan_follow(ws, claim, opts),
     }
 }
 
-fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
+fn plan_follow(ws: &Workspace, claim: &surf_core::Claim, opts: HashOpts) -> Plan {
     let sites = claim.at.sites();
     if sites.len() != 1 {
         return Plan::Skip("--follow supports single-site anchors only".into());
@@ -212,20 +216,32 @@ fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
     let Some(stored) = claim.hash.as_deref() else {
         return Plan::Skip("--follow needs a stored hash to match against".into());
     };
-    let (source, lang, anchor) = match read_site(ws, &sites[0]) {
-        Ok(parts) => parts,
-        Err(e) => return Plan::Skip(e.to_string()),
-    };
-    if anchor.segments.len() != 1 {
-        return Plan::Skip("--follow supports single-segment anchors only".into());
+    match read_site(ws, &sites[0]) {
+        // The file reads but the symbol no longer resolves — a symbol rename within the file.
+        Ok((_, _, anchor)) if anchor.segments.len() != 1 => {
+            Plan::Skip("--follow supports single-segment anchors only".into())
+        }
+        Ok((source, lang, anchor)) => follow_symbol(&source, lang, &anchor.file, stored, opts),
+        // The file itself is gone — try git rename detection (best-effort, never gates).
+        Err(SiteError::Unreadable(_)) => follow_file(ws, &sites[0], stored, opts),
+        Err(e) => Plan::Skip(e.to_string()),
     }
+}
 
-    match find_renamed(&source, lang, stored) {
+/// A symbol rename within a still-readable file: relocate by stored-hash match (§6.4).
+fn follow_symbol(
+    source: &str,
+    lang: surf_core::Lang,
+    file: &str,
+    stored: &str,
+    opts: HashOpts,
+) -> Plan {
+    match find_renamed(source, lang, stored, opts) {
         Ok(Some(new_name)) => {
-            let new_at = format!("{} > {new_name}", anchor.file);
+            let new_at = format!("{file} > {new_name}");
             match parse_anchor(&new_at)
                 .ok()
-                .and_then(|a| hash_anchor(&source, lang, &a).ok())
+                .and_then(|a| hash_anchor_with(source, lang, &a, opts).ok())
             {
                 Some(new_hash) => Plan::Follow { new_at, new_hash },
                 None => Plan::Skip("rename target did not re-resolve".into()),
@@ -235,9 +251,44 @@ fn plan_follow(ws: &Workspace, claim: &surf_core::Claim) -> Plan {
     }
 }
 
-fn site_hash(ws: &Workspace, site: &str) -> std::result::Result<String, String> {
+/// A file rename: ask git where the file moved, then re-point the anchor — but only when the
+/// code is otherwise unchanged (its hash still matches, possibly under a renamed symbol). If the
+/// body also changed, we refuse to re-stamp it; the human must verify after the path is fixed.
+fn follow_file(ws: &Workspace, site: &str, stored: &str, opts: HashOpts) -> Plan {
+    let Ok(anchor) = parse_anchor(site) else {
+        return Plan::Skip("invalid anchor".into());
+    };
+    let Some(new_file) = git::renamed_to(&ws.root, &anchor.file) else {
+        return Plan::Skip("file unreadable and no git rename match; run `surf lint`".into());
+    };
+    // Reconstruct the anchor at the new path, preserving the symbol portion (`file > sym...`).
+    let Some((_, rest)) = site.split_once('>') else {
+        return Plan::Skip("file unreadable and anchor has no symbol".into());
+    };
+    let new_at = format!("{new_file} >{rest}");
+    let (source, lang, new_anchor) = match read_site(ws, &new_at) {
+        Ok(parts) => parts,
+        Err(e) => return Plan::Skip(e.to_string()),
+    };
+    // Same symbol path, code unchanged → re-point with the identical hash.
+    if let Ok(h) = hash_anchor_with(&source, lang, &new_anchor, opts) {
+        if h == stored {
+            return Plan::Follow {
+                new_at,
+                new_hash: h,
+            };
+        }
+    }
+    // The symbol may also have been renamed in the move (single-segment only).
+    if new_anchor.segments.len() == 1 {
+        return follow_symbol(&source, lang, &new_file, stored, opts);
+    }
+    Plan::Skip("file moved but its anchored code changed; run `surf lint`".into())
+}
+
+fn site_hash(ws: &Workspace, site: &str, opts: HashOpts) -> std::result::Result<String, String> {
     let (source, lang, anchor) = read_site(ws, site).map_err(|e| e.to_string())?;
-    hash_anchor(&source, lang, &anchor).map_err(|e| e.to_string())
+    hash_anchor_with(&source, lang, &anchor, opts).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -245,7 +296,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
-    use surf_core::Lang;
+    use surf_core::{hash_anchor, Lang};
 
     fn write(root: &Path, rel: &str, content: &str) {
         let p = root.join(rel);
@@ -324,6 +375,61 @@ mod tests {
         assert_eq!(
             hub.frontmatter.anchors[0].at.sites(),
             &["src/a.rs > rotate_token".to_string()]
+        );
+        assert_eq!(
+            hub.frontmatter.anchors[0].hash.as_deref(),
+            Some(stored.as_str())
+        );
+    }
+
+    #[test]
+    fn follow_repoints_renamed_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = "pub fn rotate(t: &str) -> String { t.to_string() }\n";
+        let stored =
+            hash_anchor(src, Lang::Rust, &parse_anchor("src/a.rs > rotate").unwrap()).unwrap();
+        write(root, "surf.toml", "");
+        write(root, "src/a.rs", src);
+        write(
+            root,
+            "hubs/a.md",
+            &format!("---\nsummary: s\nanchors:\n  - claim: rotation\n    at: src/a.rs > rotate\n    hash: {stored}\n---\n"),
+        );
+
+        // Commit, then `git mv` the file so git recognizes the rename.
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(root)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "add", "."]);
+        git(&[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "v1",
+        ]);
+        git(&["mv", "src/a.rs", "src/b.rs"]);
+
+        let ws = Workspace::discover(root).unwrap();
+        let code = run(&ws, None, true, Format::Human).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+
+        // The anchor's file path was rewritten; the hash is unchanged (code only moved).
+        let hub = parse_hub(&fs::read_to_string(root.join("hubs/a.md")).unwrap()).unwrap();
+        assert_eq!(
+            hub.frontmatter.anchors[0].at.sites(),
+            &["src/b.rs > rotate".to_string()]
         );
         assert_eq!(
             hub.frontmatter.anchors[0].hash.as_deref(),

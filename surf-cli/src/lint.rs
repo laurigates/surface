@@ -11,7 +11,9 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use surf_core::{find_renamed, parse_anchor, parse_hub, public_fns, resolve, Lang, ResolveError};
+use surf_core::{
+    find_renamed, parse_anchor, parse_hub, public_fns, resolve, HashOpts, Lang, ResolveError,
+};
 
 /// Over an anchored span this fraction of its file, the anchor is "whole-file-ish" and any
 /// edit re-triggers verification — the over-anchoring tension of §8.
@@ -113,6 +115,9 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
                     &claim.claim,
                     site,
                     claim.hash.as_deref(),
+                    HashOpts {
+                        ignore_literals: claim.ignore_literals,
+                    },
                     &mut findings,
                 );
                 if let Some(info) = outcome {
@@ -213,6 +218,7 @@ fn lint_site(
     claim: &str,
     site: &str,
     stored_hash: Option<&str>,
+    opts: HashOpts,
     findings: &mut Vec<Finding>,
 ) -> Option<SiteInfo> {
     let mut block = |message: String| {
@@ -253,10 +259,25 @@ fn lint_site(
     let source = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            block(format!(
-                "cannot read `{}` (file moved or removed?)",
-                anchor.file
-            ));
+            // A moved file is recoverable: if git recognizes the rename, warn and point at
+            // `--follow` rather than hard-blocking (best-effort; the gate itself is unaffected).
+            if crate::git::renamed_to(&ws.root, &anchor.file).is_some() {
+                findings.push(Finding {
+                    severity: Severity::Warn,
+                    hub: hub.to_string(),
+                    claim: claim.to_string(),
+                    at: site.to_string(),
+                    message: format!(
+                        "`{}` appears to have moved — run `surf verify --follow`",
+                        anchor.file
+                    ),
+                });
+            } else {
+                block(format!(
+                    "cannot read `{}` (file moved or removed?)",
+                    anchor.file
+                ));
+            }
             return unresolved(false);
         }
     };
@@ -278,7 +299,7 @@ fn lint_site(
         }
         Err(ResolveError::NotFound { segment }) => {
             match stored_hash {
-                Some(h) => match find_renamed(&source, lang, h) {
+                Some(h) => match find_renamed(&source, lang, h, opts) {
                     Ok(Some(new_name)) => findings.push(Finding {
                         severity: Severity::Warn,
                         hub: hub.to_string(),

@@ -3,10 +3,11 @@ summary: surf lint — anchors must resolve to one symbol (renames warn); plus a
 anchors:
   - claim: >
       lint produces a Finding per anchor site: ambiguous or vanished anchors block, while a
-      renamed-but-present symbol (stored-hash match) only warns and points at verify --follow.
-      Block-level findings set a non-zero exit; warnings alone keep exit 0.
+      renamed-but-present symbol (stored-hash match) only warns and points at verify --follow —
+      as does a file that git reports has moved. Block-level findings set a non-zero exit;
+      warnings alone keep exit 0.
     at: surf-cli/src/lint.rs > lint_site
-    hash: 51bb818e87ae
+    hash: fb1411796566
   - claim: >
       Advisory granularity guidance (§8), never blocking: lint_under_coverage flags public
       functions in a hub's already-anchored files that no claim covers — but only for files

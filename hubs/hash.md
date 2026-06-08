@@ -4,9 +4,12 @@ anchors:
   - claim: >
       The canonical token stream drops comments, alpha-renames identifiers to positional
       placeholders (consistent rename → same tokens; swapping two names → different), and
-      keeps operators, keywords, and literal values verbatim.
+      keeps operators, keywords, and literal values verbatim. Two deliberate exceptions: a
+      Python decorator's name is kept verbatim, not alpha-renamed (so `@cache` → `@lru_cache`
+      is caught), and the per-claim ignore_literals option drops string-literal content so a
+      copy edit doesn't re-open the gate.
     at: surf-core/src/hash.rs > emit
-    hash: 5ecc5e15a524
+    hash: 1bdb8c599f6d
   - claim: >
       Identifier node kinds are enumerated per language family; only these are alpha-renamed,
       everything else (operators, keywords, literals) is kept.
