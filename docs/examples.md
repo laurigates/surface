@@ -1,6 +1,6 @@
 ---
 title: Examples
-description: One minimal hub per supported language, showing the at: anchor grammar and the quiet-on-cosmetics, loud-on-logic rule.
+description: "One minimal hub per supported language, showing the at: anchor grammar and the quiet-on-cosmetics, loud-on-logic rule."
 ---
 
 One minimal hub per supported language. Each shows an `at:` anchor and the rule that always

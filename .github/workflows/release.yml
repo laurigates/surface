@@ -31,3 +31,16 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: surf-${{ matrix.target }}.tar.gz
+
+  notify-site:
+    name: trigger docs sync on surface-site
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch to surface-site
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.SURFACE_SITE_SYNC_TOKEN }}
+          repository: Connorrmcd6/surface-site
+          event-type: surface-release
+          client-payload: '{"version": "${{ github.ref_name }}"}'

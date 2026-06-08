@@ -47,6 +47,17 @@ Keep `surf-core` free of I/O so it stays reusable; put filesystem/git work in `s
 
 **Docs source of truth.** This repo's `docs/` is canonical. The Starlight docs site
 ([`Connorrmcd6/surface-site`](https://github.com/Connorrmcd6/surface-site),
-surface.gradientdev.xyz) is updated *from* these pages — edit docs here, never only on the site.
+surface.gradientdev.xyz) is generated *from* these pages — edit docs here, never only on the site.
+On every `v*` release tag, the release workflow dispatches to surface-site, which regenerates its
+docs from `docs/` and `CHANGELOG.md` and opens a sync PR (a human merges it to deploy). So a
+release ships the docs that were merged before the tag — land doc edits with the code.
+
+`docs/reference/commands.md` is governed by `hubs/cli-reference.md`, anchored to the clap
+`Command` enum in `surf-cli/src/main.rs`: change a command or flag and `surf check` blocks until
+you re-read `commands.md` and `surf verify` it.
 
 When a change is user-facing, add a line to `CHANGELOG.md` under `[Unreleased]`.
+
+**Release prep.** Bump `Cargo.toml`, then run `scripts/bump-docs-version.sh` to update the pinned
+`Connorrmcd6/surface@vX.Y.Z` Action refs in `README.md` and `docs/` (`Cargo.toml` is the single
+source for that version). Commit, then tag.
