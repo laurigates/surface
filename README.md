@@ -127,7 +127,7 @@ Most repos never install the binary — they run the GitHub Action:
 ```yaml
 # .github/workflows/surface.yml
 - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-- uses: Connorrmcd6/surface@v0.3.1
+- uses: Connorrmcd6/surface@v0.3.2
 ```
 
 Or the install script:

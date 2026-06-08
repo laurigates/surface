@@ -7,6 +7,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-08
+
+### Documentation
+- The docs site (surface.gradientdev.xyz) is now **generated** from this repo on release: each
+  `v*` tag regenerates the Starlight site's pages and changelog from `docs/` and `CHANGELOG.md`
+  and opens a sync PR, so the site no longer drifts from canonical docs.
+- `docs/reference/commands.md` is now governed by `surf check` itself — a hub anchored to the
+  clap command/flag surface blocks the gate when the CLI and its reference drift.
+- Pinned `Connorrmcd6/surface@vX.Y.Z` Action refs in the README and docs are now derived from
+  `Cargo.toml` at release, and the Examples page description is quoted so it parses under the
+  site's strict YAML.
+
 ## [0.3.1] - 2026-06-08
 
 ### Documentation
@@ -107,7 +119,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Connorrmcd6/surface/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...v0.2.1
