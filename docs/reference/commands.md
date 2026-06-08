@@ -1,0 +1,38 @@
+---
+title: Commands
+description: The surf CLI — init, new, suggest, lint, check, and verify, with their flags and exit behavior.
+---
+
+- **`surf init`** — bootstrap a workspace: write `surf.toml` and create the hubs directory
+  (idempotent).
+- **`surf new <name>`** — scaffold a new empty hub under your hubs directory.
+- **`surf suggest <globs> [--format human|json]`** — scan source globs for top-level public
+  *functions* no hub anchors yet and print a copy-pasteable starter hub. Suggestions only — never
+  writes or stamps. (Suggestions are functions-only to avoid over-anchoring fatigue; anchoring
+  itself also supports constants, type aliases, and class attributes — see
+  [Authoring hubs](../guides/authoring-hubs.md).)
+- **`surf lint [--format human|json]`** — validate frontmatter and that every `at:` resolves to
+  exactly one symbol. Blocks on ambiguous or vanished anchors; **warns** (and suggests
+  `verify --follow`) on a symbol that was merely renamed, or a file that git reports has moved.
+  Also emits advisory granularity warnings (never blocking): a near-whole-file anchor span, a hub
+  with too many anchors, and public functions in an anchored file that no claim covers.
+- **`surf check [--format human|json] [--base <ref>] [--files <globs>]`** — the gate.
+  AST-canonical-hash each anchored span and compare to the stored hash; non-zero exit on any
+  divergence. By default every claim is checked. `--base <ref>` scopes to claims whose anchored
+  files changed since the merge base **and** recovers the advisory `old_code` / `magnitude` fields
+  from that ref (omit it for a full check with enrichment against `HEAD`). `--files <globs>` scopes
+  to claims whose anchored file(s) match a comma-separated glob (e.g. `surf-core/**`). `--format
+  json` emits the [versioned report envelope](./how-it-works.md#the-json-seam).
+- **`surf verify [<at>] [--follow] [--format human|json]`** — re-seal after you've confirmed the
+  prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor. `--follow`
+  re-points a single-segment anchor whose **symbol** was renamed, or whose **file** was moved
+  (detected via git), and re-hashes in one step — only when the code is otherwise unchanged.
+
+## Per-claim options
+
+A claim's frontmatter can carry options beyond `claim`/`at`/`hash`:
+
+- **`ignore_literals: true`** — exclude string-literal *content* from this claim's hash, so a copy
+  edit inside the anchored span no longer re-opens the gate. Logic edits (operators, numbers,
+  structure) are still caught. The stored hash is computed in this mode, so the option travels with
+  the claim. See [Authoring hubs](../guides/authoring-hubs.md) and the [FAQ](./faq.md).

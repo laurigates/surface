@@ -1,8 +1,11 @@
-# Authoring hubs
+---
+title: Authoring hubs
+description: Write claims, learn the anchor grammar, choose the right granularity, and drive the verify loop.
+---
 
 A **hub** is a markdown file whose frontmatter anchors sentences ("claims") to the code they
 describe. This guide covers writing claims, the anchor grammar, choosing the right granularity,
-and the verify loop. For the end-to-end first run, see the [Quickstart](../../README.md#quickstart).
+and the verify loop. For the end-to-end first run, see the [Quickstart](../getting-started/quickstart.md).
 
 ## Anatomy of a hub
 
@@ -56,6 +59,9 @@ src/service.ts > TokenService > rotate
 - **One segment** points at a top-level symbol: `src/m.rs > parse_anchor`.
 - **Nested segments** walk into scopes: a type and its `impl`/methods share a name, so
   `Type` alone may be ambiguous while `Type > method` is unique.
+- **Non-callables** anchor too, not just functions: in Python, module constants, type aliases
+  (`X = Literal[...]`, `type X = ...`), and class attributes (`Class > attr`); in Rust/Go,
+  `const`/`static`/`var` items. Anchor the value whose drift the sentence is about.
 - **`@N`** disambiguates genuine name collisions (1-based), e.g. two overloads:
   `src/api.ts > handler@2`.
 - **Multiple sites** — an `at:` list combines its sites into one hash, so the claim is stale if
@@ -67,8 +73,8 @@ src/service.ts > TokenService > rotate
   ```
 
 Run `surf lint` to confirm every anchor resolves to exactly one symbol. Ambiguous or vanished
-anchors **block**; a symbol that was merely renamed only **warns** and points you at
-`surf verify --follow`.
+anchors **block**; a symbol that was merely renamed — or a file that git reports has moved — only
+**warns** and points you at `surf verify --follow`.
 
 ## Choosing granularity
 
@@ -88,6 +94,18 @@ This is the central tension (proposal §8):
 
 Rule of thumb: anchor the **smallest symbol whose logic the sentence is actually about.**
 
+If a claim sits on a large symbol where user-facing copy changes often, set `ignore_literals: true`
+on it — string-literal *content* is then excluded from its hash, so a copy tweak no longer
+re-opens the claim while logic edits (operators, numbers, structure) still do. Prefer a narrower
+anchor first; reach for `ignore_literals` when the span genuinely must stay coarse.
+
+```yaml
+anchors:
+  - claim: the engine emits one result row per fixture
+    at: src/engine.ts > computeResults
+    ignore_literals: true
+```
+
 ## The verify loop
 
 `surf verify` is the human escape hatch: it re-seals a claim after *you* confirm the prose still
@@ -98,7 +116,7 @@ surf check                      # DIVERGED? a claim's anchored logic changed
 # re-read the claim:
 #   still true  → surf verify [<at>]      (re-seal)
 #   now false   → fix the prose first, then verify
-surf verify --follow            # renamed symbol: re-point the anchor and re-hash in one step
+surf verify --follow            # renamed symbol OR moved file: re-point the anchor and re-hash
 ```
 
 Verifying without reading is the failure mode the whole tool exists to prevent. A green gate

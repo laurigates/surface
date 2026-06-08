@@ -7,6 +7,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-08
+
+### Documentation
+- Reposition around *documentation governed like code* for fast-moving codebases, led by the
+  context-rot story (a context file that's accurate when written and rots as the code moves
+  because nobody knows it exists or where to find it). Dropped the older accusatory framing.
+- Slim the README to a pitch + compact quickstart that links out; the full reference now lives in
+  `docs/`. Restructured `docs/` into a site-ready tree (`getting-started/`, `reference/`,
+  `guides/`) with `title`/`description` frontmatter, mirroring the docs site
+  (surface.gradientdev.xyz); this repo's `docs/` is the source of truth.
+- Bring the docs current with 0.3.0: the versioned `--format json` envelope, the per-claim
+  `ignore_literals` option, Python non-callable anchors, file-rename `--follow`, and decorators in
+  the hashed span.
+
 ## [0.3.0] - 2026-06-08
 
 ### Added
@@ -93,7 +107,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Connorrmcd6/surface/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Connorrmcd6/surface/compare/v0.1.1...v0.2.0

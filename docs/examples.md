@@ -1,4 +1,7 @@
-# Examples
+---
+title: Examples
+description: One minimal hub per supported language, showing the at: anchor grammar and the quiet-on-cosmetics, loud-on-logic rule.
+---
 
 One minimal hub per supported language. Each shows an `at:` anchor and the rule that always
 holds: **quiet on cosmetics (formatting, comments, consistent renames), loud on logic.** Run
@@ -50,9 +53,23 @@ anchors:
     at: api/client.py > Client > _request
 ```
 
-Decorators are transparent — `@retry` above `def _request` doesn't change resolution.
+Decorators are transparent for *resolution* — `@retry` above `def _request` doesn't change which
+symbol the anchor finds — but they are part of the hashed span, so a decorator swap
+(`@retry` → `@retry_with_jitter`) **fires**.
 
 - Change the backoff base or the cap → **fires.**
+
+Non-callables anchor too — module constants, type aliases, and class attributes:
+
+```yaml
+anchors:
+  - claim: retries fire on exactly these status codes
+    at: api/client.py > RETRYABLE_STATUS_CODES
+  - claim: the SDK supports these chains
+    at: api/types.py > Chain
+```
+
+- Add or remove a status code, or change a `Chain` member → **fires.**
 
 ## Go
 

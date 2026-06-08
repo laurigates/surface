@@ -1,4 +1,7 @@
-# CI integration
+---
+title: CI integration
+description: Run the gate in CI via the GitHub Action or the pre-commit hook, the checkout-depth rule, and scoping a check to a PR.
+---
 
 `surf check` is the gate: it exits non-zero when an anchored span diverged, so it blocks a merge
 the same way a failing test does. Most repos never install the binary — they run the Action or
@@ -16,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-      - uses: Connorrmcd6/surface@v0.2.0
+      - uses: Connorrmcd6/surface@v0.3.0
 ```
 
 The action takes `args` (default `check`), `version` (default `latest`), and
@@ -39,7 +42,7 @@ the merge base — a shallow `git fetch <ref>` is plenty, still not `fetch-depth
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.2.0
+  rev: v0.3.0
   hooks:
     - id: surf-check
 ```
@@ -60,4 +63,4 @@ it:
 Both filters intersect when combined. With neither flag, the full check runs (enrichment against
 `HEAD`). A bad ref or non-repo falls back to a full check rather than silently checking nothing.
 
-See also: [Authoring hubs](./authoring-hubs.md) · [Command reference](../../README.md#commands).
+See also: [Authoring hubs](./authoring-hubs.md) · [Command reference](../reference/commands.md).
