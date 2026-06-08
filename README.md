@@ -30,8 +30,7 @@ build until a human re-confirms the sentence still holds — the same way a brok
 merge. For fast-moving codebases where humans and agents both read the docs and neither can tell a
 current doc from a rotted one.
 
-Part of [**Gradient**](https://gradientdev.xyz). Deterministic. No model, no network, no API key in
-the core.
+Deterministic. No model, no network, no API key in the core.
 
 **Docs:** [surface.gradientdev.xyz](https://surface.gradientdev.xyz) · **Install:** [`docs/getting-started/install.md`](docs/getting-started/install.md)
 
@@ -156,4 +155,4 @@ Release history is in [`CHANGELOG.md`](CHANGELOG.md). AI agents working in this 
 
 ---
 
-<sub>Surface is part of **Gradient**. The naming isn't decoration: the *gradient* of a field is everywhere perpendicular to its level *surfaces* — the direction of change, and the thing the change is measured against. Surface reports **divergence** between what your docs claim and what your code does.</sub>
+<sub>The naming isn't decoration: the *gradient* of a field is everywhere perpendicular to its level *surfaces* — the direction of change, and the thing the change is measured against. Surface reports **divergence** between what your docs claim and what your code does.</sub>
