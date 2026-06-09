@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::process::ExitCode;
-use surf_core::{parse_anchor, parse_hub, public_symbols, Lang};
+use surf_core::{parse_anchor, public_symbols, Lang};
 
 #[derive(Debug, Clone, Serialize)]
 struct Suggestion {
@@ -65,10 +65,8 @@ pub fn run(ws: &Workspace, globs: &[String], format: Format) -> Result<ExitCode>
 /// `@N` dropped). Keyed on the whole path so anchoring one method doesn't hide its siblings.
 fn covered_anchors(ws: &Workspace) -> Result<HashSet<String>> {
     let mut covered = HashSet::new();
-    for hub_path in ws.hub_paths()? {
-        let content = std::fs::read_to_string(&hub_path)
-            .with_context(|| format!("reading {}", hub_path.display()))?;
-        let Ok(hub) = parse_hub(&content) else {
+    for loaded in ws.iter_hubs()? {
+        let Ok(hub) = loaded.hub else {
             continue;
         };
         for claim in &hub.frontmatter.anchors {

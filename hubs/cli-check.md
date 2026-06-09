@@ -6,7 +6,7 @@ anchors:
       hash. No stored hash → Unverified; an anchor that no longer resolves → Unresolvable;
       a mismatch → Changed. The verdict is deterministic and needs no git.
     at: surf-cli/src/check.rs > check_claim
-    hash: c1eed8d5f41b
+    hash: e04e680e6d8b
   - claim: >
       Scoping is opt-in and intersective: with neither --base nor --files every claim is checked.
       A claim is in scope when any of its anchored files matches each active filter — the --base
@@ -14,6 +14,12 @@ anchors:
       yields no changed set, falling back to a full check rather than checking nothing.
     at: surf-cli/src/check.rs > Scope > includes
     hash: 2e21db33542d
+  - claim: >
+      The gate fails closed: a hub whose frontmatter won't parse yields an Unresolvable
+      divergence (blocking the run) rather than being silently skipped, so a frontmatter typo
+      can't pass as clean.
+    at: surf-cli/src/check.rs > check_workspace
+    hash: c29434a58059
 refs: []
 ---
 
