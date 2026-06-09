@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-      - uses: Connorrmcd6/surface@v0.3.2
+      - uses: Connorrmcd6/surface@v0.4.0
 ```
 
 See [CI integration](../guides/ci-integration.md) for the checkout-depth rule and scoping flags.

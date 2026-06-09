@@ -7,6 +7,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-09
+
+### Added
+- `surf for <path> [symbol]` — reverse lookup: list every hub and claim anchored into a file, so
+  you can pull up the documentation governing code *before* you edit it (the inverse of
+  `suggest`). Read-only and always exits 0; `--format json` emits a versioned
+  `{version, path, matches}` envelope. An optional trailing `symbol` narrows to anchors whose
+  first segment matches.
+- `surf stats [--since <date>] [--until <date>]` — adoption metrics from git history (advisory,
+  never a gate): the **rubber-stamp rate** (re-stamps that changed a claim's stored hash but left
+  its prose untouched) and the **in-place update rate** (commits touching an anchored file that
+  re-sealed the claim in the same commit). One commit = one PR (merges excluded); heuristics are
+  documented in `docs/guides/stats.md`. Errors (non-zero) when git history is unavailable.
+- `surf suggest` now proposes **methods**, not just top-level functions: Python class methods and
+  Go methods are enumerated as `file > Type > method` anchors (matched by exported Go receiver
+  type; Python async/sync mirrors de-duped). On method-oriented codebases this surfaces the bulk
+  of the public API that was previously invisible to `suggest`. Rust `impl`/TS class methods
+  remain top-level-only.
+
+### Changed
+- `surf suggest` distinguishes a glob that matched **no files** from a clean "nothing to suggest":
+  it warns on stderr and exits non-zero when *every* glob was empty, so a typo'd path no longer
+  reads as success. Coverage is now keyed on the full `file > seg > seg` anchor path, so anchoring
+  one method no longer suppresses its siblings.
+
 ## [0.3.2] - 2026-06-08
 
 ### Documentation
@@ -119,7 +144,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Connorrmcd6/surface/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Connorrmcd6/surface/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Connorrmcd6/surface/compare/v0.2.1...v0.3.0
