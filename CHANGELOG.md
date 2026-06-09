@@ -7,6 +7,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-09
+
+### Fixed
+- `surf check` now fails **closed**. A hub whose frontmatter can't be parsed previously slipped
+  through silently (exit 0, unenforced); it now surfaces as an `Unresolvable` divergence that
+  blocks the run. A hashing error is likewise reported as `Unresolvable` instead of being counted
+  clean (#35).
+
+### Changed
+- Hub iteration is unified behind `Workspace::iter_hubs()`, shared by `check`, `lint`, `suggest`,
+  and `for`. Each command carries the per-hub parse result explicitly, so the error case can no
+  longer be handled inconsistently from one command to the next (#36).
+- CI now runs the test suite and dogfood self-check on macOS (`macos-14`) in addition to Linux,
+  matching the Apple-Silicon binary that releases ship. Windows is documented as unsupported
+  (#37).
+
 ## [0.4.0] - 2026-06-09
 
 ### Added
@@ -144,7 +160,8 @@ Initial release — the MVP gate that surfaces docs↔code divergence.
 - Language support: TypeScript/TSX, JavaScript/JSX, Rust, Python, and Go.
 - Distribution: GitHub Action, pre-commit hook, and `install.sh`; Apache-2.0 license.
 
-[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Connorrmcd6/surface/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Connorrmcd6/surface/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Connorrmcd6/surface/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Connorrmcd6/surface/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Connorrmcd6/surface/compare/v0.3.0...v0.3.1
