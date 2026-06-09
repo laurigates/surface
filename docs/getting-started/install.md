@@ -41,7 +41,19 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrm
 ```
 
 Prebuilt binaries are published for **macOS (Apple Silicon)** and **Linux (x86_64)**. On Intel
-macOS, Windows, or other architectures, build from source.
+macOS or other Unix architectures, build from source.
+
+## Platform support
+
+| Platform | Status |
+| --- | --- |
+| macOS (Apple Silicon) | prebuilt binary |
+| Linux (x86_64) | prebuilt binary |
+| Intel macOS, other Unix arches | build from source |
+| Windows | **not supported** |
+
+Windows is unsupported: anchor `at:` paths are forward-slash only, and the install script
+rejects non-Unix systems. Use WSL if you need Surface on a Windows machine.
 
 ## From source
 

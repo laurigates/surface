@@ -135,8 +135,9 @@ Or the install script:
 curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrmcd6/surface/main/install.sh | sh
 ```
 
-Prebuilt binaries for macOS (Apple Silicon) and Linux (x86_64); build from source elsewhere. Full
-options — pre-commit hook, `cargo install`, the architecture matrix — in
+Prebuilt binaries for macOS (Apple Silicon) and Linux (x86_64); build from source on other
+Unix arches. Windows is **not supported** (the anchor grammar requires forward-slash paths).
+Full options — pre-commit hook, `cargo install`, the architecture matrix — in
 [Install](docs/getting-started/install.md).
 
 ## Documentation
