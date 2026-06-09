@@ -1,6 +1,6 @@
 ---
 title: Commands
-description: The surf CLI — init, new, suggest, lint, check, and verify, with their flags and exit behavior.
+description: The surf CLI — init, new, suggest, for, lint, check, and verify, with their flags and exit behavior.
 ---
 
 - **`surf init`** — bootstrap a workspace: write `surf.toml` and create the hubs directory
@@ -15,6 +15,11 @@ description: The surf CLI — init, new, suggest, lint, check, and verify, with 
   empty. (Suggestions are callables-only to avoid over-anchoring fatigue; anchoring itself also
   supports constants, type aliases, and class attributes — see
   [Authoring hubs](../guides/authoring-hubs.md).)
+- **`surf for <path> [symbol] [--format human|json]`** — reverse lookup: list every hub + claim
+  anchored into `<path>`, so you can pull up the documentation governing a file *before* you edit
+  it (the inverse of `suggest`). An optional trailing `symbol` narrows to anchors whose first
+  segment matches. Read-only and always exits 0 — a query, not a gate. `--format json` emits a
+  versioned envelope (`{version, path, matches}`) for agents.
 - **`surf lint [--format human|json]`** — validate frontmatter and that every `at:` resolves to
   exactly one symbol. Blocks on ambiguous or vanished anchors; **warns** (and suggests
   `verify --follow`) on a symbol that was merely renamed, or a file that git reports has moved.
