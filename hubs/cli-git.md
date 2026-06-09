@@ -20,6 +20,21 @@ anchors:
       None means git couldn't pair the rename — the deterministic verdict never depends on it.
     at: surf-cli/src/git.rs > renamed_to
     hash: 9622170a3b9a
+  - claim: >
+      log_commits lists commit SHAs (newest first) in the optional since/until window with merges
+      excluded, so surf stats treats each SHA as one unit of work. None when git can't answer.
+    at: surf-cli/src/git.rs > log_commits
+    hash: 748b15a706c2
+  - claim: >
+      commit_files lists the repo-relative paths a single commit changed versus its first parent
+      (diff-tree --no-commit-id --name-only -r). None when git can't answer.
+    at: surf-cli/src/git.rs > commit_files
+    hash: cef27873a3e1
+  - claim: >
+      list_files_at lists every tracked file at a commit (ls-tree -r --name-only), used to find the
+      hub set as it existed at a past commit. None when git can't answer.
+    at: surf-cli/src/git.rs > list_files_at
+    hash: cbe066de9432
 refs: []
 ---
 

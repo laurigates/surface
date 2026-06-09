@@ -7,6 +7,7 @@ mod git;
 mod init;
 mod lint;
 mod new;
+mod stats;
 mod suggest;
 mod verify;
 mod workspace;
@@ -90,6 +91,18 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
     },
+    /// Adoption metrics from git history: rubber-stamp rate and in-place update rate.
+    Stats {
+        /// Only count commits more recent than this date (passed to `git log --since`).
+        #[arg(long)]
+        since: Option<String>,
+        /// Only count commits older than this date (passed to `git log --until`).
+        #[arg(long)]
+        until: Option<String>,
+        /// Output format for the metrics.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -132,5 +145,10 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
             symbol,
             format,
         } => for_path::run(&ws, &path, symbol.as_deref(), format),
+        Command::Stats {
+            since,
+            until,
+            format,
+        } => stats::run(&ws, since.as_deref(), until.as_deref(), format),
     }
 }

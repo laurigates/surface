@@ -36,6 +36,12 @@ description: The surf CLI — init, new, suggest, for, lint, check, and verify, 
   prose still holds; writes the hash into the frontmatter. `<at>` limits to one anchor. `--follow`
   re-points a single-segment anchor whose **symbol** was renamed, or whose **file** was moved
   (detected via git), and re-hashes in one step — only when the code is otherwise unchanged.
+- **`surf stats [--since <date>] [--until <date>] [--format human|json]`** — adoption metrics from
+  git history (advisory, never a gate): the **rubber-stamp rate** (re-stamps that changed a
+  claim's stored hash but left its prose untouched) and the **in-place update rate** (commits
+  touching an anchored file that re-sealed the claim in the same commit). One commit = one PR
+  (merges excluded). Heuristic by design — see the [stats guide](../guides/stats.md). Errors
+  (non-zero) if git history is unavailable.
 
 ## Per-claim options
 
