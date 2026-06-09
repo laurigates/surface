@@ -9,7 +9,6 @@ You anchor a sentence to the code it describes. When that code's logic changes, 
 fails the build until a human re-confirms the sentence still holds — the same way a broken test
 blocks a merge. Deterministic: no model, no network, no API key in the core.
 
-Part of [**Gradient**](https://gradientdev.xyz).
 
 > **Docs source of truth.** These pages (the repo's `docs/` tree) are canonical. The docs site at
 > [surface.gradientdev.xyz](https://surface.gradientdev.xyz) is generated *from* them — edit docs
