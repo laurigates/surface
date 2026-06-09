@@ -14,6 +14,12 @@ anchors:
       yields no changed set, falling back to a full check rather than checking nothing.
     at: surf-cli/src/check.rs > Scope > includes
     hash: 2e21db33542d
+  - claim: >
+      The gate fails closed: a hub whose frontmatter won't parse yields an Unresolvable
+      divergence (blocking the run) rather than being silently skipped, so a frontmatter typo
+      can't pass as clean.
+    at: surf-cli/src/check.rs > check_workspace
+    hash: c29434a58059
 refs: []
 ---
 
