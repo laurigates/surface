@@ -12,7 +12,7 @@ anchors:
       no source parse), optionally narrowed to anchors whose first segment is the given symbol.
       Malformed hubs are skipped rather than erroring, and results are sorted by hub then anchor.
     at: surf-cli/src/for_path.rs > find
-    hash: 749bdeb8e9d6
+    hash: 047c1480c650
 refs: []
 ---
 

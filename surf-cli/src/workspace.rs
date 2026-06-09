@@ -5,11 +5,19 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use surf_core::config::{parse_config, Config, CONFIG_FILE};
-use surf_core::{parse_anchor, Anchor, Lang};
+use surf_core::{parse_anchor, parse_hub, Anchor, Hub, HubError, Lang};
 
 pub struct Workspace {
     pub root: PathBuf,
     pub config: Config,
+}
+
+/// One hub file located, read, and parsed. `hub` carries the parse result per-hub so each
+/// command must consciously decide what to do with a malformed hub (block, skip, warn)
+/// rather than re-implementing — and diverging on — that choice.
+pub struct LoadedHub {
+    pub rel: String,
+    pub hub: Result<Hub, HubError>,
 }
 
 impl Workspace {
@@ -45,6 +53,25 @@ impl Workspace {
         }
         out.sort();
         out.dedup();
+        Ok(out)
+    }
+
+    /// Read and parse every hub. I/O failure hard-errors the run (an unreadable hub is
+    /// exceptional); a *parse* failure is carried per-hub in `LoadedHub::hub` so each
+    /// caller handles it explicitly.
+    pub fn iter_hubs(&self) -> Result<Vec<LoadedHub>> {
+        let mut out = Vec::new();
+        for path in self.hub_paths()? {
+            let rel = path
+                .strip_prefix(&self.root)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            let content = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let hub = parse_hub(&content);
+            out.push(LoadedHub { rel, hub });
+        }
         Ok(out)
     }
 }

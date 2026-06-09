@@ -5,10 +5,10 @@
 
 use crate::format::Format;
 use crate::workspace::Workspace;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::process::ExitCode;
-use surf_core::{parse_anchor, parse_hub, REPORT_VERSION};
+use surf_core::{parse_anchor, REPORT_VERSION};
 
 #[derive(Debug, Clone, Serialize)]
 struct ForMatch {
@@ -57,15 +57,9 @@ fn normalize(ws: &Workspace, path: &str) -> String {
 
 fn find(ws: &Workspace, query: &str, symbol: Option<&str>) -> Result<Vec<ForMatch>> {
     let mut out = Vec::new();
-    for hub_path in ws.hub_paths()? {
-        let rel_hub = hub_path
-            .strip_prefix(&ws.root)
-            .unwrap_or(&hub_path)
-            .display()
-            .to_string();
-        let content = std::fs::read_to_string(&hub_path)
-            .with_context(|| format!("reading {}", hub_path.display()))?;
-        let Ok(hub) = parse_hub(&content) else {
+    for loaded in ws.iter_hubs()? {
+        let rel_hub = loaded.rel;
+        let Ok(hub) = loaded.hub else {
             // Malformed hubs are lint's job; skip rather than error out of a query.
             continue;
         };

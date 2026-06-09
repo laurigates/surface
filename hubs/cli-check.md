@@ -6,7 +6,7 @@ anchors:
       hash. No stored hash → Unverified; an anchor that no longer resolves → Unresolvable;
       a mismatch → Changed. The verdict is deterministic and needs no git.
     at: surf-cli/src/check.rs > check_claim
-    hash: c1eed8d5f41b
+    hash: e04e680e6d8b
   - claim: >
       Scoping is opt-in and intersective: with neither --base nor --files every claim is checked.
       A claim is in scope when any of its anchored files matches each active filter — the --base

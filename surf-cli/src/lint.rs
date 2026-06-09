@@ -6,14 +6,12 @@
 
 use crate::format::Format;
 use crate::workspace::Workspace;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use surf_core::{
-    find_renamed, parse_anchor, parse_hub, public_fns, resolve, HashOpts, Lang, ResolveError,
-};
+use surf_core::{find_renamed, parse_anchor, public_fns, resolve, HashOpts, Lang, ResolveError};
 
 /// Over an anchored span this fraction of its file, the anchor is "whole-file-ish" and any
 /// edit re-triggers verification — the over-anchoring tension of §8.
@@ -78,16 +76,9 @@ fn print_human(findings: &[Finding], blocks: usize, warns: usize) {
 
 fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
-    for hub_path in ws.hub_paths()? {
-        let rel = hub_path
-            .strip_prefix(&ws.root)
-            .unwrap_or(&hub_path)
-            .display()
-            .to_string();
-        let content = std::fs::read_to_string(&hub_path)
-            .with_context(|| format!("reading {}", hub_path.display()))?;
-
-        let hub = match parse_hub(&content) {
+    for loaded in ws.iter_hubs()? {
+        let rel = loaded.rel;
+        let hub = match loaded.hub {
             Ok(hub) => hub,
             Err(e) => {
                 findings.push(Finding {

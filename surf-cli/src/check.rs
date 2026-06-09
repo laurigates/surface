@@ -7,11 +7,11 @@
 use crate::format::Format;
 use crate::git;
 use crate::workspace::{read_site, Workspace};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::process::ExitCode;
 use surf_core::{
-    diff_magnitude, hash_anchor_with, parse_anchor, parse_hub, resolve, CheckReport, Divergence,
-    DivergenceKind, HashOpts,
+    diff_magnitude, hash_anchor_with, parse_anchor, resolve, CheckReport, Divergence,
+    DivergenceKind, HashOpts, HubError,
 };
 
 pub fn run(
@@ -47,29 +47,42 @@ fn check_workspace(
     let enrich_base = base.unwrap_or("HEAD");
 
     let mut out = Vec::new();
-    for hub_path in ws.hub_paths()? {
-        let rel = hub_path
-            .strip_prefix(&ws.root)
-            .unwrap_or(&hub_path)
-            .display()
-            .to_string();
-        let content = std::fs::read_to_string(&hub_path)
-            .with_context(|| format!("reading {}", hub_path.display()))?;
-        let Ok(hub) = parse_hub(&content) else {
-            // Malformed hubs are lint's job; check skips them rather than miscounting.
-            continue;
+    for loaded in ws.iter_hubs()? {
+        let hub = match loaded.hub {
+            Ok(hub) => hub,
+            Err(e) => {
+                // The gate fails closed: an unparseable hub is unenforceable, not clean.
+                out.push(malformed_hub_divergence(&loaded.rel, &e));
+                continue;
+            }
         };
 
         for claim in &hub.frontmatter.anchors {
             if !scope.includes(claim) {
                 continue;
             }
-            if let Some(d) = check_claim(ws, &rel, claim, enrich_base) {
+            if let Some(d) = check_claim(ws, &loaded.rel, claim, enrich_base) {
                 out.push(d);
             }
         }
     }
     Ok(out)
+}
+
+fn malformed_hub_divergence(hub: &str, err: &HubError) -> Divergence {
+    Divergence {
+        hub: hub.to_string(),
+        claim: String::new(),
+        at: String::new(),
+        kind: DivergenceKind::Unresolvable,
+        old_hash: None,
+        new_hash: None,
+        old_code: None,
+        new_code: None,
+        prose: String::new(),
+        magnitude: None,
+        detail: Some(format!("invalid hub: {err}")),
+    }
 }
 
 /// Which claims `check` evaluates. Each active filter narrows the set; a claim must satisfy
@@ -173,7 +186,11 @@ fn check_claim(
                 .get(span.start_byte..span.end_byte)
                 .map(str::to_string);
         }
-        site_hashes.push(hash_anchor_with(&current, lang, &anchor, opts).ok()?);
+        let hash = match hash_anchor_with(&current, lang, &anchor, opts) {
+            Ok(h) => h,
+            Err(e) => return unresolvable(e.to_string()),
+        };
+        site_hashes.push(hash);
     }
     let new_hash = surf_core::combine_site_hashes(&site_hashes);
 
@@ -422,6 +439,24 @@ mod tests {
             d[0].detail.as_deref(),
             Some("unsupported file type: schema.sql")
         );
+    }
+
+    #[test]
+    fn malformed_hub_blocks_check() {
+        // A frontmatter typo must fail the gate, not pass silently (#35).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(root, "surf.toml", "");
+        write(
+            root,
+            "hubs/a.md",
+            "---\nsummary: x\nanchors:\n  - claim: [unterminated\n---\n",
+        );
+
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].kind, DivergenceKind::Unresolvable);
+        assert!(d[0].detail.as_deref().unwrap().starts_with("invalid hub"));
     }
 
     #[test]
