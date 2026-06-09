@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 mod check;
+mod for_path;
 mod format;
 mod git;
 mod init;
@@ -79,6 +80,16 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
     },
+    /// Reverse lookup: list every hub + claim anchored into a file (before you edit it).
+    For {
+        /// File to look up, relative to the workspace root (e.g. "src/auth/refresh.ts").
+        path: String,
+        /// Optionally narrow to anchors whose first segment is this symbol.
+        symbol: Option<String>,
+        /// Output format for the matches.
+        #[arg(long, value_enum, default_value_t = Format::Human)]
+        format: Format,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -116,5 +127,10 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
             format,
         } => verify::run(&ws, target.as_deref(), follow, format),
         Command::Suggest { globs, format } => suggest::run(&ws, &globs, format),
+        Command::For {
+            path,
+            symbol,
+            format,
+        } => for_path::run(&ws, &path, symbol.as_deref(), format),
     }
 }
