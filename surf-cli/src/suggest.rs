@@ -1,7 +1,8 @@
-//! `surf suggest <globs>` — propose anchors for public functions no hub covers yet (§8, #18).
-//! Scans the given source files, lists each top-level public function that isn't already
+//! `surf suggest <globs>` — propose anchors for public symbols no hub covers yet (§8, #18).
+//! Scans the given source files, lists each public function and method that isn't already
 //! anchored, and prints a copy-pasteable starter hub. Suggestions only: it never writes a file
-//! and never stamps a hash — the author edits the claims and runs `surf verify`.
+//! and never stamps a hash — the author edits the claims and runs `surf verify`. A glob that
+//! matches no files is reported (and fails when every glob is empty) so typos don't look clean.
 
 use crate::format::Format;
 use crate::workspace::Workspace;
@@ -9,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::process::ExitCode;
-use surf_core::{parse_anchor, parse_hub, public_fns, Lang};
+use surf_core::{parse_anchor, parse_hub, public_symbols, Lang};
 
 #[derive(Debug, Clone, Serialize)]
 struct Suggestion {
@@ -18,20 +19,51 @@ struct Suggestion {
     at: String,
 }
 
-pub fn run(ws: &Workspace, globs: &[String], format: Format) -> Result<ExitCode> {
-    let covered = covered_symbols(ws)?;
-    let suggestions = scan(ws, globs, &covered)?;
-
-    match format {
-        Format::Json => println!("{}", serde_json::to_string_pretty(&suggestions)?),
-        Format::Human => print_human(&suggestions),
-    }
-    Ok(ExitCode::SUCCESS)
+/// Per-glob tally so a typo'd glob (zero files) reads differently from a clean "all anchored".
+struct GlobReport {
+    pattern: String,
+    files_matched: usize,
+    supported_matched: usize,
 }
 
-/// `(file, first-segment)` pairs already anchored by some hub — the same coverage notion lint's
-/// under-coverage check uses. A public fn matching one of these is already documented.
-fn covered_symbols(ws: &Workspace) -> Result<HashSet<(String, String)>> {
+struct ScanResult {
+    suggestions: Vec<Suggestion>,
+    globs: Vec<GlobReport>,
+}
+
+pub fn run(ws: &Workspace, globs: &[String], format: Format) -> Result<ExitCode> {
+    let covered = covered_anchors(ws)?;
+    let result = scan(ws, globs, &covered)?;
+
+    match format {
+        Format::Json => println!("{}", serde_json::to_string_pretty(&result.suggestions)?),
+        Format::Human => print_human(&result.suggestions),
+    }
+    // Warnings go to stderr so JSON stdout stays machine-parseable.
+    for g in &result.globs {
+        if g.files_matched == 0 {
+            eprintln!("surf suggest: glob \"{}\" matched no files.", g.pattern);
+        } else if g.supported_matched == 0 {
+            eprintln!(
+                "surf suggest: glob \"{}\" matched files, but none in a supported language.",
+                g.pattern
+            );
+        }
+    }
+
+    // A typo'd glob should fail scripts/CI; but only when *every* glob matched nothing, so a
+    // partially-correct invocation still succeeds.
+    let all_empty = !result.globs.is_empty() && result.globs.iter().all(|g| g.files_matched == 0);
+    Ok(if all_empty {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
+}
+
+/// Full anchor paths already covered by some hub, normalized to `file > seg > seg` (positional
+/// `@N` dropped). Keyed on the whole path so anchoring one method doesn't hide its siblings.
+fn covered_anchors(ws: &Workspace) -> Result<HashSet<String>> {
     let mut covered = HashSet::new();
     for hub_path in ws.hub_paths()? {
         let content = std::fs::read_to_string(&hub_path)
@@ -42,9 +74,8 @@ fn covered_symbols(ws: &Workspace) -> Result<HashSet<(String, String)>> {
         for claim in &hub.frontmatter.anchors {
             for site in claim.at.sites() {
                 if let Ok(anchor) = parse_anchor(site) {
-                    if let Some(seg) = anchor.segments.first() {
-                        covered.insert((anchor.file, seg.name.clone()));
-                    }
+                    let path: Vec<&str> = anchor.segments.iter().map(|s| s.name.as_str()).collect();
+                    covered.insert(format!("{} > {}", anchor.file, path.join(" > ")));
                 }
             }
         }
@@ -52,22 +83,22 @@ fn covered_symbols(ws: &Workspace) -> Result<HashSet<(String, String)>> {
     Ok(covered)
 }
 
-fn scan(
-    ws: &Workspace,
-    globs: &[String],
-    covered: &HashSet<(String, String)>,
-) -> Result<Vec<Suggestion>> {
+fn scan(ws: &Workspace, globs: &[String], covered: &HashSet<String>) -> Result<ScanResult> {
     let mut out = Vec::new();
+    let mut reports = Vec::new();
     for pattern in globs {
         let joined = ws.root.join(pattern);
-        let pattern = joined
+        let glob_str = joined
             .to_str()
             .with_context(|| format!("glob is not valid UTF-8: {}", joined.display()))?;
-        for entry in glob::glob(pattern).context("invalid glob pattern")? {
+        let mut files_matched = 0;
+        let mut supported_matched = 0;
+        for entry in glob::glob(glob_str).context("invalid glob pattern")? {
             let path = entry?;
             if !path.is_file() {
                 continue;
             }
+            files_matched += 1;
             let rel = path
                 .strip_prefix(&ws.root)
                 .unwrap_or(&path)
@@ -79,11 +110,13 @@ fn scan(
             let Ok(source) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            for symbol in public_fns(&source, lang) {
-                if covered.contains(&(rel.clone(), symbol.clone())) {
+            supported_matched += 1;
+            for segments in public_symbols(&source, lang) {
+                let at = format!("{rel} > {}", segments.join(" > "));
+                if covered.contains(&at) {
                     continue;
                 }
-                let at = format!("{rel} > {symbol}");
+                let symbol = segments.last().cloned().unwrap_or_default();
                 out.push(Suggestion {
                     file: rel.clone(),
                     symbol,
@@ -91,19 +124,27 @@ fn scan(
                 });
             }
         }
+        reports.push(GlobReport {
+            pattern: pattern.clone(),
+            files_matched,
+            supported_matched,
+        });
     }
-    out.sort_by(|a, b| (&a.file, &a.symbol).cmp(&(&b.file, &b.symbol)));
+    out.sort_by(|a, b| a.at.cmp(&b.at));
     out.dedup_by(|a, b| a.at == b.at);
-    Ok(out)
+    Ok(ScanResult {
+        suggestions: out,
+        globs: reports,
+    })
 }
 
 fn print_human(suggestions: &[Suggestion]) {
     if suggestions.is_empty() {
-        println!("surf suggest: no unanchored public functions found.");
+        println!("surf suggest: no unanchored public symbols found.");
         return;
     }
     println!(
-        "# {} unanchored public function(s). Paste into a hub (or `surf new <name>`), write the",
+        "# {} unanchored public symbol(s). Paste into a hub (or `surf new <name>`), write the",
         suggestions.len()
     );
     println!(
@@ -153,8 +194,10 @@ mod tests {
                 "---\nsummary: x\nanchors:\n  - claim: a does\n    at: src/m.rs > a\n---\n",
             ),
         ]);
-        let covered = covered_symbols(&ws).unwrap();
-        let s = scan(&ws, &["src/*.rs".to_string()], &covered).unwrap();
+        let covered = covered_anchors(&ws).unwrap();
+        let s = scan(&ws, &["src/*.rs".to_string()], &covered)
+            .unwrap()
+            .suggestions;
         // `a` is anchored, `c` is private — only `b` remains.
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].at, "src/m.rs > b");
@@ -164,21 +207,99 @@ mod tests {
     #[test]
     fn unsupported_files_are_skipped() {
         let (_t, ws) = ws_with(&[("notes.txt", "pub fn a() {}\n")]);
-        let covered = covered_symbols(&ws).unwrap();
-        let s = scan(&ws, &["*.txt".to_string()], &covered).unwrap();
+        let covered = covered_anchors(&ws).unwrap();
+        let s = scan(&ws, &["*.txt".to_string()], &covered)
+            .unwrap()
+            .suggestions;
         assert!(s.is_empty());
     }
 
     #[test]
     fn json_shape_has_no_hash() {
         let (_t, ws) = ws_with(&[("src/m.rs", "pub fn solo() {}\n")]);
-        let covered = covered_symbols(&ws).unwrap();
-        let s = scan(&ws, &["src/*.rs".to_string()], &covered).unwrap();
+        let covered = covered_anchors(&ws).unwrap();
+        let s = scan(&ws, &["src/*.rs".to_string()], &covered)
+            .unwrap()
+            .suggestions;
         let json = serde_json::to_value(&s).unwrap();
         let obj = json[0].as_object().unwrap();
         for key in ["file", "symbol", "at"] {
             assert!(obj.contains_key(key), "missing `{key}` in {obj:?}");
         }
         assert!(!obj.contains_key("hash"));
+    }
+
+    #[test]
+    fn proposes_python_methods_as_class_method_anchors() {
+        let (_t, ws) = ws_with(&[(
+            "src/api.py",
+            "class Client:\n    def fetch(self):\n        pass\n    def send(self):\n        pass\n",
+        )]);
+        let covered = covered_anchors(&ws).unwrap();
+        let s = scan(&ws, &["src/*.py".to_string()], &covered)
+            .unwrap()
+            .suggestions;
+        let ats: Vec<&str> = s.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(
+            ats,
+            vec!["src/api.py > Client > fetch", "src/api.py > Client > send"]
+        );
+    }
+
+    #[test]
+    fn anchoring_one_method_does_not_hide_siblings() {
+        let (_t, ws) = ws_with(&[
+            (
+                "src/api.py",
+                "class Client:\n    def fetch(self):\n        pass\n    def send(self):\n        pass\n",
+            ),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: c\n    at: src/api.py > Client > fetch\n---\n",
+            ),
+        ]);
+        let covered = covered_anchors(&ws).unwrap();
+        let s = scan(&ws, &["src/*.py".to_string()], &covered)
+            .unwrap()
+            .suggestions;
+        // `fetch` is anchored; only `send` should remain.
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].at, "src/api.py > Client > send");
+    }
+
+    #[test]
+    fn zero_match_glob_is_reported_and_fails_alone() {
+        let (_t, ws) = ws_with(&[("src/m.rs", "pub fn a() {}\n")]);
+        let r = scan(
+            &ws,
+            &["zzz/nope/**/*.go".to_string()],
+            &covered_anchors(&ws).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.globs.len(), 1);
+        assert_eq!(r.globs[0].files_matched, 0);
+        assert!(r.suggestions.is_empty());
+        let code = run(&ws, &["zzz/nope/**/*.go".to_string()], Format::Human).unwrap();
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
+    }
+
+    #[test]
+    fn partial_match_still_succeeds() {
+        let (_t, ws) = ws_with(&[("src/m.rs", "pub fn a() {}\n")]);
+        let code = run(
+            &ws,
+            &["src/*.rs".to_string(), "zzz/nope/*.go".to_string()],
+            Format::Human,
+        )
+        .unwrap();
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
+    }
+
+    #[test]
+    fn unsupported_language_match_is_distinguished() {
+        let (_t, ws) = ws_with(&[("notes.txt", "hello\n")]);
+        let r = scan(&ws, &["*.txt".to_string()], &covered_anchors(&ws).unwrap()).unwrap();
+        assert_eq!(r.globs[0].files_matched, 1);
+        assert_eq!(r.globs[0].supported_matched, 0);
     }
 }

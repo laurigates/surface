@@ -282,6 +282,112 @@ pub fn public_fns(source: &str, lang: Lang) -> Vec<String> {
     out
 }
 
+/// Public symbols on a file's surface as resolvable anchor segment paths: top-level functions
+/// (`["foo"]`), and — unlike [`public_fns`] — the methods that make up most of a Python/Go API
+/// (`["Builder", "Set"]`). Same behavior-not-data scope as `public_fns`, so pure types
+/// (structs/enums/classes themselves) are never proposed — only their methods. Methods on Rust
+/// `impl` blocks and TS classes are out of scope here; only top-level fns are enumerated for them.
+pub fn public_symbols(source: &str, lang: Lang) -> Vec<Vec<String>> {
+    let Some(tree) = parse_tree(source, lang) else {
+        return Vec::new();
+    };
+    let src = source.as_bytes();
+    let family = lang.family();
+    let mut out = Vec::new();
+    let root = tree.root_node();
+    let mut cursor = root.walk();
+    for child in root.named_children(&mut cursor) {
+        collect_public_symbol(child, src, family, &mut out);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_public_symbol(node: Node, src: &[u8], family: Family, out: &mut Vec<Vec<String>>) {
+    match family {
+        Family::Rust => {
+            if node.kind() == "function_item" && is_rust_pub(node, src) {
+                if let Some(name) = field_text(node, "name", src) {
+                    out.push(vec![name.to_string()]);
+                }
+            }
+        }
+        Family::TypeScript => {
+            if node.kind() == "export_statement" {
+                let mut names = Vec::new();
+                let mut cursor = node.walk();
+                for c in node.named_children(&mut cursor) {
+                    ts_collect_export_fns(c, src, &mut names);
+                }
+                out.extend(names.into_iter().map(|n| vec![n]));
+            }
+        }
+        Family::Python => collect_python_symbol(node, src, None, out),
+        Family::Go => match node.kind() {
+            "function_declaration" => {
+                if let Some(name) = field_text(node, "name", src) {
+                    if name.chars().next().is_some_and(char::is_uppercase) {
+                        out.push(vec![name.to_string()]);
+                    }
+                }
+            }
+            // Methods are flat in Go; pair the method with its receiver type so the anchor
+            // resolves as `file.go > Type > Method`. Both must be exported to be public surface.
+            "method_declaration" => {
+                if let (Some(name), Some(ty)) =
+                    (field_text(node, "name", src), go_receiver_type(node, src))
+                {
+                    if name.chars().next().is_some_and(char::is_uppercase)
+                        && ty.chars().next().is_some_and(char::is_uppercase)
+                    {
+                        out.push(vec![ty.to_string(), name.to_string()]);
+                    }
+                }
+            }
+            _ => {}
+        },
+    }
+}
+
+/// `class` given: we're inside that class body, so non-underscore `def`s become
+/// `[Class, method]`. `None`: top level, so functions become `[fn]` and we descend one level
+/// into public classes to surface their methods (nested classes are not recursed into).
+fn collect_python_symbol(node: Node, src: &[u8], class: Option<&str>, out: &mut Vec<Vec<String>>) {
+    match node.kind() {
+        "function_definition" => {
+            if let Some(name) = python_def_name(node, src) {
+                if !name.starts_with('_') {
+                    let mut path: Vec<String> = class.into_iter().map(str::to_string).collect();
+                    path.push(name);
+                    out.push(path);
+                }
+            }
+        }
+        "class_definition" if class.is_none() => {
+            let Some(name) = python_def_name(node, src) else {
+                return;
+            };
+            if name.starts_with('_') {
+                return;
+            }
+            if let Some(body) = node.child_by_field_name("body") {
+                let mut cursor = body.walk();
+                for c in body.named_children(&mut cursor) {
+                    collect_python_symbol(c, src, Some(&name), out);
+                }
+            }
+        }
+        "decorated_definition" => {
+            let mut cursor = node.walk();
+            for c in node.named_children(&mut cursor) {
+                collect_python_symbol(c, src, class, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn collect_public_fn(node: Node, src: &[u8], family: Family, out: &mut Vec<String>) {
     match family {
         Family::Rust => {
@@ -516,5 +622,76 @@ mod tests {
     fn go_only_capitalized_funcs() {
         let src = "package p\nfunc Exported() {}\nfunc unexported() {}\ntype Foo struct{}\n";
         assert_eq!(syms(src, Lang::Go), vec!["Exported".to_string()]);
+    }
+
+    #[test]
+    fn python_symbols_include_class_methods() {
+        let src = "\
+def top():
+    pass
+class C:
+    def visible(self):
+        pass
+    async def visible(self):  # sync/async mirror dedupes
+        pass
+    def _private(self):
+        pass
+    def __init__(self):
+        pass
+class _Hidden:
+    def m(self):
+        pass
+";
+        assert_eq!(
+            public_symbols(src, Lang::Python),
+            vec![
+                vec!["C".to_string(), "visible".to_string()],
+                vec!["top".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn python_decorated_methods_are_enumerated() {
+        let src = "\
+class C:
+    @property
+    def value(self):
+        pass
+";
+        assert_eq!(
+            public_symbols(src, Lang::Python),
+            vec![vec!["C".to_string(), "value".to_string()]]
+        );
+    }
+
+    #[test]
+    fn go_symbols_include_methods_by_receiver() {
+        // Pointer and value receivers both yield the bare type name; lowercase method and
+        // method on an unexported type are excluded.
+        let src = "\
+package p
+func Top() {}
+type Builder struct{}
+func (b *Builder) Set() {}
+func (ls Labels) String() string { return \"\" }
+func (b *Builder) internal() {}
+type priv struct{}
+func (p *priv) Exported() {}
+";
+        assert_eq!(
+            public_symbols(src, Lang::Go),
+            vec![
+                vec!["Builder".to_string(), "Set".to_string()],
+                vec!["Labels".to_string(), "String".to_string()],
+                vec!["Top".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn rust_symbols_are_top_level_fns_only() {
+        let src = "pub fn a() {}\nfn b() {}\nimpl S { pub fn m(&self) {} }\n";
+        assert_eq!(public_symbols(src, Lang::Rust), vec![vec!["a".to_string()]]);
     }
 }
