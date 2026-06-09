@@ -6,10 +6,14 @@ description: The surf CLI — init, new, suggest, lint, check, and verify, with 
 - **`surf init`** — bootstrap a workspace: write `surf.toml` and create the hubs directory
   (idempotent).
 - **`surf new <name>`** — scaffold a new empty hub under your hubs directory.
-- **`surf suggest <globs> [--format human|json]`** — scan source globs for top-level public
-  *functions* no hub anchors yet and print a copy-pasteable starter hub. Suggestions only — never
-  writes or stamps. (Suggestions are functions-only to avoid over-anchoring fatigue; anchoring
-  itself also supports constants, type aliases, and class attributes — see
+- **`surf suggest <globs> [--format human|json]`** — scan source globs for public *callables* no
+  hub anchors yet — top-level functions plus **Python class methods and Go methods** (as
+  `file > Type > method` anchors) — and print a copy-pasteable starter hub. Suggestions only —
+  never writes or stamps. Coverage is keyed on the whole anchor path, so anchoring one method
+  doesn't suppress its siblings. A glob that matches **no files** is reported on stderr (so a typo
+  doesn't read as a clean "all anchored"); `suggest` exits non-zero only when *every* glob was
+  empty. (Suggestions are callables-only to avoid over-anchoring fatigue; anchoring itself also
+  supports constants, type aliases, and class attributes — see
   [Authoring hubs](../guides/authoring-hubs.md).)
 - **`surf lint [--format human|json]`** — validate frontmatter and that every `at:` resolves to
   exactly one symbol. Blocks on ambiguous or vanished anchors; **warns** (and suggests
