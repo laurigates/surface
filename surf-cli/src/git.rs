@@ -34,6 +34,61 @@ pub fn changed_files(root: &Path, base: &str) -> Option<HashSet<String>> {
     })
 }
 
+/// Commit SHAs (newest first) in the optional `since`/`until` window, merges excluded so each
+/// SHA is one unit of work (`surf stats` treats a commit as a PR). `None` if git can't answer.
+pub fn log_commits(root: &Path, since: Option<&str>, until: Option<&str>) -> Option<Vec<String>> {
+    let mut args: Vec<String> = vec!["log".into(), "--no-merges".into(), "--format=%H".into()];
+    if let Some(s) = since {
+        args.push(format!("--since={s}"));
+    }
+    if let Some(u) = until {
+        args.push(format!("--until={u}"));
+    }
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(&args)
+        .output()
+        .ok()?;
+    output.status.success().then(|| {
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+/// Repo-root-relative paths changed by a single commit (vs its first parent). Empty for the root
+/// commit's tree-only diff is fine. `None` if git can't answer.
+pub fn commit_files(root: &Path, sha: &str) -> Option<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["diff-tree", "--no-commit-id", "--name-only", "-r", sha])
+        .output()
+        .ok()?;
+    output.status.success().then(|| {
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+/// Every tracked file at `sha` (repo-root-relative). Used to find the hub set as it existed at a
+/// past commit. `None` if git can't answer.
+pub fn list_files_at(root: &Path, sha: &str) -> Option<Vec<String>> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["ls-tree", "-r", "--name-only", sha])
+        .output()
+        .ok()?;
+    output.status.success().then(|| {
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    })
+}
+
 /// The contents of `rel_file` at `base` (e.g. `git show HEAD:src/x.rs`). `None` if unavailable.
 pub fn show(root: &Path, base: &str, rel_file: &str) -> Option<String> {
     let output = Command::new("git")
