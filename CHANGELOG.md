@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-11
+
 ### Added
 - `surf suggest --all` additionally proposes the non-callable anchor targets `resolve` already
   accepts but `suggest` previously hid: top-level classes, module-level constants and type
@@ -35,6 +37,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hubs no longer makes each hub warn about the symbols the other one anchors; and the measured
   public surface now includes methods (`Type > method`), not just top-level functions, matching
   what `suggest` proposes (#54).
+- `surf for`, `surf check --files`, and `surf stats` now fail loudly on malformed input instead of
+  returning a falsely-reassuring success. `surf for` errors on a nonexistent/mistyped path, a
+  directory, or a trailing slash (instead of "no hubs anchor" + exit 0); invalid `--files` glob
+  syntax and invalid `surf.toml` hub globs now error instead of being silently dropped (#53, #38).
 
 ## [0.5.0] - 2026-06-09
 
