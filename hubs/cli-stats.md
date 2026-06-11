@@ -16,7 +16,7 @@ anchors:
       and missing git history or an invalid hub glob in surf.toml is a hard error rather than a
       silent zero or a quietly-narrowed hub set.
     at: surf-cli/src/stats.rs > compute
-    hash: c58b950866ba
+    hash: 4adab21bd94e
 refs: ["../docs/guides/stats.md"]
 ---
 

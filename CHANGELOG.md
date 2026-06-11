@@ -14,6 +14,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to avoid over-anchoring fatigue. Closes the gap where those kinds were anchorable by hand yet
   undiscoverable via `suggest` (#52).
 
+### Changed
+- `surf stats` is much faster on large histories. It previously recomputed the hub claim set at
+  every commit *and* its parent, each spawning `git ls-tree` plus a `git show` per hub — roughly
+  `2 × commits × hubs` subprocesses. The claim set is now memoized by commit SHA, with each
+  `before` rev canonicalized to its parent's SHA so it reuses the parent commit's already-computed
+  state. Metrics are unchanged (#40).
+
 ### Fixed
 - `surf lint`'s under-coverage nudge is no longer workspace-blind and no longer skips methods.
   Coverage is now computed across the whole workspace, so splitting one file's claims across two
