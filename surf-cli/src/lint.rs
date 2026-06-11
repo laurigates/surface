@@ -11,7 +11,9 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use surf_core::{find_renamed, parse_anchor, public_fns, resolve, HashOpts, Lang, ResolveError};
+use surf_core::{
+    find_renamed, parse_anchor, public_symbols, resolve, HashOpts, Lang, ResolveError,
+};
 
 /// Over an anchored span this fraction of its file, the anchor is "whole-file-ish" and any
 /// edit re-triggers verification — the over-anchoring tension of §8.
@@ -76,6 +78,22 @@ fn print_human(findings: &[Finding], blocks: usize, warns: usize) {
 
 fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
+
+    // Coverage is a workspace property, not a per-hub one: a public symbol anchored by *any* hub
+    // is covered, so a second hub that merely touches the same file must not be nagged about the
+    // symbols another hub owns (#54). Accumulate across every hub, then run the under-coverage
+    // nudge once at the end. Keyed by file:
+    //   - `covered`   — the full segment path of each resolved anchor, so anchoring one method
+    //                   doesn't mark its siblings covered (the same exactness `suggest` uses, #29).
+    //   - `unhealthy` — files with an unresolved anchor anywhere; the nudge skips them, since
+    //                   piling coverage nags onto a broken file would just be noise.
+    //   - `owner`     — the lexicographically-first hub anchoring the file, which the file's
+    //                   nudge is attributed to, so each uncovered symbol is reported once rather
+    //                   than once per hub touching the file.
+    let mut covered: HashMap<String, HashSet<Vec<String>>> = HashMap::new();
+    let mut unhealthy: HashSet<String> = HashSet::new();
+    let mut owner: HashMap<String, String> = HashMap::new();
+
     for loaded in ws.iter_hubs()? {
         let rel = loaded.rel;
         let hub = match loaded.hub {
@@ -92,12 +110,6 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
             }
         };
 
-        // Per anchored file: the first-segment names a hub's claims cover, and whether every
-        // anchor in it resolved cleanly. Under-coverage only runs on healthy files — piling
-        // coverage nags onto a hub with broken anchors would just be noise.
-        let mut covered: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut unhealthy: HashSet<String> = HashSet::new();
-
         for claim in &hub.frontmatter.anchors {
             for site in claim.at.sites() {
                 let outcome = lint_site(
@@ -112,8 +124,16 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
                     &mut findings,
                 );
                 if let Some(info) = outcome {
+                    owner
+                        .entry(info.file.clone())
+                        .and_modify(|h| {
+                            if rel < *h {
+                                *h = rel.clone();
+                            }
+                        })
+                        .or_insert_with(|| rel.clone());
                     if info.resolved {
-                        covered.entry(info.file).or_default().insert(info.first_seg);
+                        covered.entry(info.file).or_default().insert(info.segments);
                     } else {
                         unhealthy.insert(info.file);
                     }
@@ -133,13 +153,19 @@ fn lint_workspace(ws: &Workspace) -> Result<Vec<Finding>> {
                 ),
             });
         }
+    }
 
-        for (file, covered_names) in &covered {
-            if unhealthy.contains(file) {
-                continue;
-            }
-            lint_under_coverage(ws, &rel, file, covered_names, &mut findings);
+    // Under-coverage, workspace-wide: for each anchored, healthy file, warn for public symbols no
+    // hub covers. Sorted by file for deterministic output.
+    let mut files: Vec<(&String, &String)> = owner.iter().collect();
+    files.sort();
+    let empty = HashSet::new();
+    for (file, hub) in files {
+        if unhealthy.contains(file) {
+            continue;
         }
+        let cov = covered.get(file).unwrap_or(&empty);
+        lint_under_coverage(ws, hub, file, cov, &mut findings);
     }
 
     lint_agents_pointer(ws, &mut findings);
@@ -195,11 +221,12 @@ fn link_targets(text: &str) -> impl Iterator<Item = &str> {
         .filter_map(|after| after.split_once(')').map(|(target, _)| target.trim()))
 }
 
-/// What `lint_site` learned about one anchor site: which file/symbol it names and whether it
-/// resolved cleanly. `None` when the site can't even be attributed to a file (unparseable).
+/// What `lint_site` learned about one anchor site: which file it names, the full segment path it
+/// anchors (e.g. `["Builder", "Set"]`), and whether it resolved cleanly. `None` when the site
+/// can't even be attributed to a file (unparseable).
 struct SiteInfo {
     file: String,
-    first_seg: String,
+    segments: Vec<String>,
     resolved: bool,
 }
 
@@ -229,15 +256,11 @@ fn lint_site(
             return None;
         }
     };
-    let first_seg = anchor
-        .segments
-        .first()
-        .map(|s| s.name.clone())
-        .unwrap_or_default();
+    let segments: Vec<String> = anchor.segments.iter().map(|s| s.name.clone()).collect();
     let unresolved = |resolved: bool| {
         Some(SiteInfo {
             file: anchor.file.clone(),
-            first_seg: first_seg.clone(),
+            segments: segments.clone(),
             resolved,
         })
     };
@@ -341,7 +364,7 @@ fn lint_under_coverage(
     ws: &Workspace,
     hub: &str,
     file: &str,
-    covered: &HashSet<String>,
+    covered: &HashSet<Vec<String>>,
     findings: &mut Vec<Finding>,
 ) {
     let Some(lang) = Lang::from_path(file) else {
@@ -350,15 +373,18 @@ fn lint_under_coverage(
     let Ok(source) = std::fs::read_to_string(ws.root.join(file)) else {
         return;
     };
-    for sym in public_fns(&source, lang) {
+    // `public_symbols` measures the behaviour-bearing surface — top-level functions *and* the
+    // methods that make up most of a Python/Go API (#54) — not just top-level fns.
+    for sym in public_symbols(&source, lang) {
         if !covered.contains(&sym) {
+            let path = sym.join(" > ");
             findings.push(Finding {
                 severity: Severity::Warn,
                 hub: hub.to_string(),
                 claim: String::new(),
-                at: format!("{file} > {sym}"),
+                at: format!("{file} > {path}"),
                 message: format!(
-                    "public function `{sym}` in {file} has no claim in this hub — add an anchor or accept it as intentionally undocumented"
+                    "public symbol `{path}` in {file} has no claim in any hub — add an anchor or accept it as intentionally undocumented"
                 ),
             });
         }
@@ -497,6 +523,63 @@ mod tests {
         assert_eq!(f.len(), 1);
         assert_eq!(f[0].severity, Severity::Warn);
         assert!(f[0].message.contains("`b`"), "{}", f[0].message);
+    }
+
+    #[test]
+    fn coverage_is_workspace_wide_not_per_hub() {
+        // One file, its public surface split across two hubs. Neither symbol is uncovered
+        // workspace-wide, so neither hub may be nagged about the symbol the other one owns (#54).
+        let (_t, ws) = ws_with(&[
+            ("src/m.rs", "pub fn a() {}\npub fn b() {}\n"),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: a does\n    at: src/m.rs > a\n---\n",
+            ),
+            (
+                "hubs/b.md",
+                "---\nsummary: x\nanchors:\n  - claim: b does\n    at: src/m.rs > b\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        assert!(f.is_empty(), "expected no findings, got {f:?}");
+    }
+
+    #[test]
+    fn under_coverage_includes_methods() {
+        // A method-heavy Go type: the top-level fn is anchored, but a public method is not.
+        // Pre-#54 the nudge saw only top-level fns and stayed silent; now methods count.
+        let go = "package m\n\ntype Builder struct{}\n\nfunc NewBuilder() *Builder { return &Builder{} }\n\nfunc (b *Builder) Set() {}\n";
+        let (_t, ws) = ws_with(&[
+            ("src/m.go", go),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: ctor\n    at: src/m.go > NewBuilder\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        assert_eq!(f.len(), 1, "expected one method nudge, got {f:?}");
+        assert_eq!(f[0].severity, Severity::Warn);
+        assert!(
+            f[0].message.contains("`Builder > Set`"),
+            "{}",
+            f[0].message
+        );
+    }
+
+    #[test]
+    fn anchoring_a_method_silences_only_that_method() {
+        // Anchoring `Builder > Set` covers exactly it — a sibling method stays flagged (#29 parity).
+        let go = "package m\n\ntype Builder struct{}\n\nfunc (b *Builder) Set() {}\n\nfunc (b *Builder) Del() {}\n";
+        let (_t, ws) = ws_with(&[
+            ("src/m.go", go),
+            (
+                "hubs/a.md",
+                "---\nsummary: x\nanchors:\n  - claim: set\n    at: src/m.go > Builder > Set\n---\n",
+            ),
+        ]);
+        let f = lint_workspace(&ws).unwrap();
+        assert_eq!(f.len(), 1, "only the unanchored sibling, got {f:?}");
+        assert!(f[0].message.contains("`Builder > Del`"), "{}", f[0].message);
     }
 
     #[test]
