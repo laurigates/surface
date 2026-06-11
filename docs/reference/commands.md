@@ -6,15 +6,16 @@ description: The surf CLI — init, new, suggest, for, lint, check, and verify, 
 - **`surf init`** — bootstrap a workspace: write `surf.toml` and create the hubs directory
   (idempotent).
 - **`surf new <name>`** — scaffold a new empty hub under your hubs directory.
-- **`surf suggest <globs> [--format human|json]`** — scan source globs for public *callables* no
-  hub anchors yet — top-level functions plus **Python class methods and Go methods** (as
-  `file > Type > method` anchors) — and print a copy-pasteable starter hub. Suggestions only —
-  never writes or stamps. Coverage is keyed on the whole anchor path, so anchoring one method
-  doesn't suppress its siblings. A glob that matches **no files** is reported on stderr (so a typo
-  doesn't read as a clean "all anchored"); `suggest` exits non-zero only when *every* glob was
-  empty. (Suggestions are callables-only to avoid over-anchoring fatigue; anchoring itself also
-  supports constants, type aliases, and class attributes — see
-  [Authoring hubs](../guides/authoring-hubs.md).)
+- **`surf suggest <globs> [--all] [--format human|json]`** — scan source globs for public
+  *callables* no hub anchors yet — top-level functions plus **Python class methods and Go
+  methods** (as `file > Type > method` anchors) — and print a copy-pasteable starter hub.
+  Suggestions only — never writes or stamps. Coverage is keyed on the whole anchor path, so
+  anchoring one method doesn't suppress its siblings. A glob that matches **no files** is reported
+  on stderr (so a typo doesn't read as a clean "all anchored"); `suggest` exits non-zero only when
+  *every* glob was empty. The default is callables-only to avoid over-anchoring fatigue; **`--all`**
+  additionally proposes the non-callable targets anchoring already supports — top-level classes,
+  module-level constants and type aliases, and class attributes (Python) — so they're discoverable
+  (see [Authoring hubs](../guides/authoring-hubs.md)).
 - **`surf for <path> [symbol] [--format human|json]`** — reverse lookup: list every hub + claim
   anchored into `<path>`, so you can pull up the documentation governing a file *before* you edit
   it (the inverse of `suggest`). An optional trailing `symbol` narrows to anchors whose first

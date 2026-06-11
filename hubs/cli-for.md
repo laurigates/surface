@@ -2,11 +2,14 @@
 summary: surf for — reverse lookup of hubs/claims anchored into a file; read-only query.
 anchors:
   - claim: >
-      run normalizes the queried path to workspace-root-relative form, finds the matching claims,
-      and prints them grouped by hub (human) or as a versioned {version, path, matches} envelope
-      (JSON). It is a query, not a gate, so it always exits 0 whether or not anything matched.
+      run normalizes the queried path to workspace-root-relative form, then verifies it is a
+      regular file on disk — a nonexistent/mistyped path, a directory, or a trailing slash errors
+      (exit 1) rather than reporting "no hubs anchor", so a typo can't read as safe-to-edit. For a
+      real file it finds the matching claims and prints them grouped by hub (human) or as a
+      versioned {version, path, matches} envelope (JSON), always exiting 0 whether or not anything
+      matched.
     at: surf-cli/src/for_path.rs > run
-    hash: 0e15525b1340
+    hash: 3ffb208cc1db
   - claim: >
       find collects every claim whose anchored file equals the queried path (matched on path only —
       no source parse), optionally narrowed to anchors whose first segment is the given symbol.

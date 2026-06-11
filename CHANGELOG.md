@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `surf suggest --all` additionally proposes the non-callable anchor targets `resolve` already
+  accepts but `suggest` previously hid: top-level classes, module-level constants and type
+  aliases, and class attributes (Python). The default stays callables-only (functions + methods)
+  to avoid over-anchoring fatigue. Closes the gap where those kinds were anchorable by hand yet
+  undiscoverable via `suggest` (#52).
 - npm distribution: install via `npm install @gradientdev/surface` or run ad-hoc with
   `npx @gradientdev/surface check`. A thin shim resolves the prebuilt binary for the host from
   per-platform `optionalDependencies` (macOS Apple Silicon, Linux x86_64) — no `postinstall`
@@ -16,6 +21,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `curl | sh` install script (and the GitHub Action that wraps it) verifies the download against
   it before installing. A missing checksum or a mismatch aborts the install — fail closed —
   rather than running a corrupted or tampered binary (#39).
+
+### Changed
+- `surf stats` is much faster on large histories. It previously recomputed the hub claim set at
+  every commit *and* its parent, each spawning `git ls-tree` plus a `git show` per hub — roughly
+  `2 × commits × hubs` subprocesses. The claim set is now memoized by commit SHA, with each
+  `before` rev canonicalized to its parent's SHA so it reuses the parent commit's already-computed
+  state. Metrics are unchanged (#40).
+
+### Fixed
+- `surf lint`'s under-coverage nudge is no longer workspace-blind and no longer skips methods.
+  Coverage is now computed across the whole workspace, so splitting one file's claims across two
+  hubs no longer makes each hub warn about the symbols the other one anchors; and the measured
+  public surface now includes methods (`Type > method`), not just top-level functions, matching
+  what `suggest` proposes (#54).
 
 ## [0.5.0] - 2026-06-09
 

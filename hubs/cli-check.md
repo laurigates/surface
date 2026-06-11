@@ -19,7 +19,7 @@ anchors:
       divergence (blocking the run) rather than being silently skipped, so a frontmatter typo
       can't pass as clean.
     at: surf-cli/src/check.rs > check_workspace
-    hash: c29434a58059
+    hash: df30746fb6b2
 refs: []
 ---
 
