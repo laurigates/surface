@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- npm distribution: install via `npm install @gradientdev/surface` or run ad-hoc with
+  `npx @gradientdev/surface check`. A thin shim resolves the prebuilt binary for the host from
+  per-platform `optionalDependencies` (macOS Apple Silicon, Linux x86_64) — no `postinstall`
+  download step. Published from CI on each release with provenance attestation (#46).
 - Release integrity: each published binary now ships a `<asset>.tar.gz.sha256` checksum, and the
   `curl | sh` install script (and the GitHub Action that wraps it) verifies the download against
   it before installing. A missing checksum or a mismatch aborts the install — fail closed —

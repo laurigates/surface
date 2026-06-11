@@ -47,6 +47,19 @@ Each release publishes a `<asset>.sha256` alongside every binary, and the instal
 it before installing — a missing checksum or a mismatch aborts the install rather than running an
 unverified binary.
 
+## npm
+
+For JS-ecosystem projects, install via npm (or run ad-hoc with `npx`):
+
+```sh
+npm install --save-dev @gradientdev/surface
+npx @gradientdev/surface check
+```
+
+A thin shim package pulls in the prebuilt binary for your platform via `optionalDependencies`
+(macOS Apple Silicon and Linux x86_64) — there is no `postinstall` download step. On an
+unsupported platform the shim errors and points you at the from-source build.
+
 ## Platform support
 
 | Platform | Status |

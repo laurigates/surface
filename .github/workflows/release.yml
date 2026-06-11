@@ -44,6 +44,43 @@ jobs:
             surf-${{ matrix.target }}.tar.gz
             surf-${{ matrix.target }}.tar.gz.sha256
 
+  npm-publish:
+    name: publish npm channel
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # download the release assets built by `build`
+      id-token: write # npm publish --provenance attestation
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - name: Assemble platform packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          # Stamp the version + optionalDependencies pins across all npm packages.
+          node npm/prepare.mjs "$version"
+          # Pull the binaries this run just built and drop each into its platform package. The
+          # tarball holds a bare `surf` at its root (see the Package step above).
+          gh release download "$GITHUB_REF_NAME" -p 'surf-*.tar.gz' -D dist
+          mkdir -p npm/surface-darwin-arm64/bin npm/surface-linux-x64/bin
+          tar -xzf dist/surf-aarch64-apple-darwin.tar.gz -C npm/surface-darwin-arm64/bin
+          tar -xzf dist/surf-x86_64-unknown-linux-gnu.tar.gz -C npm/surface-linux-x64/bin
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -eu
+          # Platform packages first so the shim's optionalDependencies resolve immediately.
+          npm publish --provenance --access public npm/surface-darwin-arm64
+          npm publish --provenance --access public npm/surface-linux-x64
+          npm publish --provenance --access public npm/surface
+
   notify-site:
     name: trigger docs sync on surface-site
     needs: build

@@ -1,0 +1,2 @@
+# Platform binaries are injected at publish time (and by the local smoke test), never committed.
+surface-*/bin/
