@@ -1,11 +1,13 @@
 //! `surf for <path> [symbol]` — reverse lookup: which hubs/claims anchor into a file (#31).
 //! The inverse of authoring — pull up the claims governing a file before you edit it. Reuses the
 //! hub/anchor machinery and only matches on the anchored *path*, so it stays deterministic with
-//! no model, network, or source parse. A query, not a gate: it always exits 0.
+//! no model, network, or source parse. A query, not a gate: for an existing file it always exits
+//! 0 (matched or not), but a path that isn't a regular file errors (exit 1) so a typo can't read
+//! as "nothing anchors here, safe to edit" (#53).
 
 use crate::format::Format;
 use crate::workspace::Workspace;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::process::ExitCode;
 use surf_core::{parse_anchor, REPORT_VERSION};
@@ -25,7 +27,15 @@ struct ForReport {
 }
 
 pub fn run(ws: &Workspace, path: &str, symbol: Option<&str>, format: Format) -> Result<ExitCode> {
+    // A pre-edit safety check that can't tell "no claims" from "wrong path" is worse than
+    // useless — it greenlights editing a file that isn't the one you meant. Stat first, like
+    // `suggest` does for its globs (#30, #53). Resolve against the root so a root-relative
+    // query is checked where anchors actually live, not against the cwd.
     let query = normalize(ws, path);
+    if !ws.root.join(&query).is_file() {
+        bail!("no such file: {path} (path does not exist or is not a regular file)");
+    }
+
     let matches = find(ws, &query, symbol)?;
 
     match format {
@@ -160,6 +170,26 @@ mod tests {
         assert_eq!(normalize(&ws, "./src/x.rs"), "src/x.rs");
         let abs = ws.root.join("src/x.rs");
         assert_eq!(normalize(&ws, abs.to_str().unwrap()), "src/x.rs");
+    }
+
+    #[test]
+    fn run_errors_on_nonexistent_path() {
+        // A typo must not look like "nothing anchors here, safe to edit".
+        let (_t, ws) = ws_with(&[("hubs/a.md", HUB)]);
+        assert!(run(&ws, "src/x.rs", None, Format::Human).is_err());
+    }
+
+    #[test]
+    fn run_errors_on_directory() {
+        let (_t, ws) = ws_with(&[("hubs/a.md", HUB), ("src/x.rs", "fn foo() {}\n")]);
+        assert!(run(&ws, "src", None, Format::Human).is_err());
+    }
+
+    #[test]
+    fn run_succeeds_on_real_file_even_when_unanchored() {
+        // Genuinely-existing-but-unanchored keeps exit 0; only the wrong-path case errors.
+        let (_t, ws) = ws_with(&[("hubs/a.md", HUB), ("src/lonely.rs", "fn solo() {}\n")]);
+        assert!(run(&ws, "src/lonely.rs", None, Format::Human).is_ok());
     }
 
     #[test]

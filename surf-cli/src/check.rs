@@ -42,7 +42,7 @@ fn check_workspace(
     base: Option<&str>,
     files: &[String],
 ) -> Result<Vec<Divergence>> {
-    let scope = Scope::build(ws, base, files);
+    let scope = Scope::build(ws, base, files)?;
     // Enrichment always needs a ref; an explicit --base doubles as the diff base, else HEAD.
     let enrich_base = base.unwrap_or("HEAD");
 
@@ -93,15 +93,20 @@ struct Scope {
 }
 
 impl Scope {
-    fn build(ws: &Workspace, base: Option<&str>, files: &[String]) -> Scope {
+    fn build(ws: &Workspace, base: Option<&str>, files: &[String]) -> Result<Scope> {
         // A bad ref / non-repo yields None — we fall back to a full check rather than
         // silently checking nothing.
         let changed = base.and_then(|b| git::changed_files(&ws.root, b));
+        // Invalid glob *syntax* must fail loudly: silently dropping a `--files` pattern
+        // changes the gate's scope with no signal (#38). Zero *matches* stay fine.
         let globs = files
             .iter()
-            .filter_map(|p| glob::Pattern::new(p).ok())
-            .collect();
-        Scope { changed, globs }
+            .map(|p| {
+                glob::Pattern::new(p)
+                    .map_err(|e| anyhow::anyhow!("invalid --files glob \"{p}\": {e}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Scope { changed, globs })
     }
 
     fn includes(&self, claim: &surf_core::Claim) -> bool {
@@ -326,6 +331,17 @@ mod tests {
         assert!(check_workspace(&ws_at(root.to_path_buf()), None, &[])
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn invalid_files_glob_syntax_errors() {
+        // A malformed `--files` pattern must fail loudly, not silently widen/narrow scope (#38).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(root, "surf.toml", "");
+        let err = check_workspace(&ws_at(root.to_path_buf()), None, &["src/[".to_string()])
+            .unwrap_err();
+        assert!(err.to_string().contains("src/["), "got: {err}");
     }
 
     #[test]
