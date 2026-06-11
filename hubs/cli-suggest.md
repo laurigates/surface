@@ -2,13 +2,15 @@
 summary: surf suggest — propose anchors for unanchored public symbols; read-only, never stamps.
 anchors:
   - claim: >
-      surf suggest is read-only: run scans the given globs, lists each public symbol (top-level
-      function, plus Python/Go methods) no hub already anchors, and prints them (a starter hub in
-      human mode, or JSON). It warns on stderr for any glob that matched no files, and exits
-      non-zero only when every glob was empty. It never writes a file and never computes or stamps
-      a hash — the author edits the claims and verifies.
+      surf suggest is read-only: run scans the given globs, lists each public symbol no hub
+      already anchors, and prints them (a starter hub in human mode, or JSON). By default the
+      surface is callables (top-level functions plus Python/Go methods); --all additionally
+      proposes the non-callable targets resolve accepts — top-level classes, module-level
+      constants and type aliases, and class attributes (Python). It warns on stderr for any glob
+      that matched no files, and exits non-zero only when every glob was empty. It never writes a
+      file and never computes or stamps a hash — the author edits the claims and verifies.
     at: surf-cli/src/suggest.rs > run
-    hash: 9f907f6299ff
+    hash: 0b479465922d
 refs: []
 ---
 

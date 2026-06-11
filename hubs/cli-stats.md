@@ -13,9 +13,10 @@ anchors:
       rubber-stamp numerator only when the claim's prose was unchanged. A claim-touch event is a
       commit that changed a file the claim anchors; it counts toward the in-place numerator when
       the claim's stored hash was updated in that same commit. Claim identity is its at: site(s),
-      and missing git history is a hard error rather than a silent zero.
+      and missing git history or an invalid hub glob in surf.toml is a hard error rather than a
+      silent zero or a quietly-narrowed hub set.
     at: surf-cli/src/stats.rs > compute
-    hash: 55561222d721
+    hash: 4adab21bd94e
 refs: ["../docs/guides/stats.md"]
 ---
 

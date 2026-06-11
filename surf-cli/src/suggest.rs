@@ -1,8 +1,10 @@
 //! `surf suggest <globs>` — propose anchors for public symbols no hub covers yet (§8, #18).
 //! Scans the given source files, lists each public function and method that isn't already
-//! anchored, and prints a copy-pasteable starter hub. Suggestions only: it never writes a file
-//! and never stamps a hash — the author edits the claims and runs `surf verify`. A glob that
-//! matches no files is reported (and fails when every glob is empty) so typos don't look clean.
+//! anchored, and prints a copy-pasteable starter hub. With `--all` it also proposes the
+//! non-callable targets `resolve` accepts (classes, constants, type aliases, class attributes),
+//! so they're discoverable. Suggestions only: it never writes a file and never stamps a hash —
+//! the author edits the claims and runs `surf verify`. A glob that matches no files is reported
+//! (and fails when every glob is empty) so typos don't look clean.
 
 use crate::format::Format;
 use crate::workspace::Workspace;
@@ -10,7 +12,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::process::ExitCode;
-use surf_core::{parse_anchor, public_symbols, Lang};
+use surf_core::{parse_anchor, public_symbols, Lang, Surface};
 
 #[derive(Debug, Clone, Serialize)]
 struct Suggestion {
@@ -31,9 +33,10 @@ struct ScanResult {
     globs: Vec<GlobReport>,
 }
 
-pub fn run(ws: &Workspace, globs: &[String], format: Format) -> Result<ExitCode> {
+pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Result<ExitCode> {
+    let surface = if all { Surface::All } else { Surface::Callables };
     let covered = covered_anchors(ws)?;
-    let result = scan(ws, globs, &covered)?;
+    let result = scan(ws, globs, &covered, surface)?;
 
     match format {
         Format::Json => println!("{}", serde_json::to_string_pretty(&result.suggestions)?),
@@ -81,7 +84,12 @@ fn covered_anchors(ws: &Workspace) -> Result<HashSet<String>> {
     Ok(covered)
 }
 
-fn scan(ws: &Workspace, globs: &[String], covered: &HashSet<String>) -> Result<ScanResult> {
+fn scan(
+    ws: &Workspace,
+    globs: &[String],
+    covered: &HashSet<String>,
+    surface: Surface,
+) -> Result<ScanResult> {
     let mut out = Vec::new();
     let mut reports = Vec::new();
     for pattern in globs {
@@ -109,7 +117,7 @@ fn scan(ws: &Workspace, globs: &[String], covered: &HashSet<String>) -> Result<S
                 continue;
             };
             supported_matched += 1;
-            for segments in public_symbols(&source, lang) {
+            for segments in public_symbols(&source, lang, surface) {
                 let at = format!("{rel} > {}", segments.join(" > "));
                 if covered.contains(&at) {
                     continue;
@@ -193,7 +201,7 @@ mod tests {
             ),
         ]);
         let covered = covered_anchors(&ws).unwrap();
-        let s = scan(&ws, &["src/*.rs".to_string()], &covered)
+        let s = scan(&ws, &["src/*.rs".to_string()], &covered, Surface::Callables)
             .unwrap()
             .suggestions;
         // `a` is anchored, `c` is private — only `b` remains.
@@ -206,7 +214,7 @@ mod tests {
     fn unsupported_files_are_skipped() {
         let (_t, ws) = ws_with(&[("notes.txt", "pub fn a() {}\n")]);
         let covered = covered_anchors(&ws).unwrap();
-        let s = scan(&ws, &["*.txt".to_string()], &covered)
+        let s = scan(&ws, &["*.txt".to_string()], &covered, Surface::Callables)
             .unwrap()
             .suggestions;
         assert!(s.is_empty());
@@ -216,7 +224,7 @@ mod tests {
     fn json_shape_has_no_hash() {
         let (_t, ws) = ws_with(&[("src/m.rs", "pub fn solo() {}\n")]);
         let covered = covered_anchors(&ws).unwrap();
-        let s = scan(&ws, &["src/*.rs".to_string()], &covered)
+        let s = scan(&ws, &["src/*.rs".to_string()], &covered, Surface::Callables)
             .unwrap()
             .suggestions;
         let json = serde_json::to_value(&s).unwrap();
@@ -234,13 +242,43 @@ mod tests {
             "class Client:\n    def fetch(self):\n        pass\n    def send(self):\n        pass\n",
         )]);
         let covered = covered_anchors(&ws).unwrap();
-        let s = scan(&ws, &["src/*.py".to_string()], &covered)
+        let s = scan(&ws, &["src/*.py".to_string()], &covered, Surface::Callables)
             .unwrap()
             .suggestions;
         let ats: Vec<&str> = s.iter().map(|x| x.at.as_str()).collect();
         assert_eq!(
             ats,
             vec!["src/api.py > Client > fetch", "src/api.py > Client > send"]
+        );
+    }
+
+    #[test]
+    fn all_flag_proposes_classes_and_non_callables() {
+        // Default stays callables; --all surfaces the class, constant, and class attribute too,
+        // so the kinds `resolve` accepts are discoverable (#52).
+        let (_t, ws) = ws_with(&[(
+            "src/api.py",
+            "CONST = 1\n\nclass Client:\n    timeout: int = 30\n    def fetch(self):\n        pass\n",
+        )]);
+        let covered = covered_anchors(&ws).unwrap();
+        let default = scan(&ws, &["src/*.py".to_string()], &covered, Surface::Callables)
+            .unwrap()
+            .suggestions;
+        let default_ats: Vec<&str> = default.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(default_ats, vec!["src/api.py > Client > fetch"]);
+
+        let all = scan(&ws, &["src/*.py".to_string()], &covered, Surface::All)
+            .unwrap()
+            .suggestions;
+        let all_ats: Vec<&str> = all.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(
+            all_ats,
+            vec![
+                "src/api.py > CONST",
+                "src/api.py > Client",
+                "src/api.py > Client > fetch",
+                "src/api.py > Client > timeout",
+            ]
         );
     }
 
@@ -257,7 +295,7 @@ mod tests {
             ),
         ]);
         let covered = covered_anchors(&ws).unwrap();
-        let s = scan(&ws, &["src/*.py".to_string()], &covered)
+        let s = scan(&ws, &["src/*.py".to_string()], &covered, Surface::Callables)
             .unwrap()
             .suggestions;
         // `fetch` is anchored; only `send` should remain.
@@ -272,12 +310,13 @@ mod tests {
             &ws,
             &["zzz/nope/**/*.go".to_string()],
             &covered_anchors(&ws).unwrap(),
+            Surface::Callables,
         )
         .unwrap();
         assert_eq!(r.globs.len(), 1);
         assert_eq!(r.globs[0].files_matched, 0);
         assert!(r.suggestions.is_empty());
-        let code = run(&ws, &["zzz/nope/**/*.go".to_string()], Format::Human).unwrap();
+        let code = run(&ws, &["zzz/nope/**/*.go".to_string()], false, Format::Human).unwrap();
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
     }
 
@@ -287,6 +326,7 @@ mod tests {
         let code = run(
             &ws,
             &["src/*.rs".to_string(), "zzz/nope/*.go".to_string()],
+            false,
             Format::Human,
         )
         .unwrap();
@@ -296,7 +336,7 @@ mod tests {
     #[test]
     fn unsupported_language_match_is_distinguished() {
         let (_t, ws) = ws_with(&[("notes.txt", "hello\n")]);
-        let r = scan(&ws, &["*.txt".to_string()], &covered_anchors(&ws).unwrap()).unwrap();
+        let r = scan(&ws, &["*.txt".to_string()], &covered_anchors(&ws).unwrap(), Surface::Callables).unwrap();
         assert_eq!(r.globs[0].files_matched, 1);
         assert_eq!(r.globs[0].supported_matched, 0);
     }

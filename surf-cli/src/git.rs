@@ -73,6 +73,22 @@ pub fn commit_files(root: &Path, sha: &str) -> Option<Vec<String>> {
     })
 }
 
+/// Resolve a revision to its full commit SHA (e.g. `git rev-parse <sha>^` → the parent's SHA).
+/// Used to canonicalize a `before` rev so it shares a cache key with the parent commit's `after`
+/// state. `None` if the rev doesn't resolve (e.g. the root commit's nonexistent parent).
+pub fn rev_parse(root: &Path, rev: &str) -> Option<String> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Every tracked file at `sha` (repo-root-relative). Used to find the hub set as it existed at a
 /// past commit. `None` if git can't answer.
 pub fn list_files_at(root: &Path, sha: &str) -> Option<Vec<String>> {
