@@ -43,9 +43,37 @@ url="https://github.com/$REPO/releases/download/$tag/surf-$target.tar.gz"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# SHA-256 of a file, using whichever tool the platform ships (#39).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  else
+    return 1
+  fi
+}
+
 echo "surf: downloading $tag ($target)..."
 curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$tmp/surf.tar.gz" \
   || { echo "surf: no release asset at $url" >&2; exit 1; }
+
+# Verify integrity before unpacking. Fail closed: a missing checksum or a mismatch aborts the
+# install rather than running an unverified binary (the threat #39 addresses). The checksum file
+# lists `<hash>  surf-<target>.tar.gz`; we compare the hash value, since the local copy is renamed.
+echo "surf: verifying checksum..."
+curl --proto '=https' --tlsv1.2 -fsSL "$url.sha256" -o "$tmp/surf.sha256" \
+  || { echo "surf: no checksum at $url.sha256 (release may predate checksums; install from source instead)" >&2; exit 1; }
+expected="$(cut -d' ' -f1 < "$tmp/surf.sha256")"
+actual="$(sha256_of "$tmp/surf.tar.gz")" \
+  || { echo "surf: need 'sha256sum' or 'shasum' to verify the download" >&2; exit 1; }
+if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+  echo "surf: checksum mismatch — refusing to install" >&2
+  echo "  expected: $expected" >&2
+  echo "  actual:   $actual" >&2
+  exit 1
+fi
+
 tar -xzf "$tmp/surf.tar.gz" -C "$tmp"
 
 mkdir -p "$INSTALL_DIR"

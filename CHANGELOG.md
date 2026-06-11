@@ -13,6 +13,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   aliases, and class attributes (Python). The default stays callables-only (functions + methods)
   to avoid over-anchoring fatigue. Closes the gap where those kinds were anchorable by hand yet
   undiscoverable via `suggest` (#52).
+- Release integrity: each published binary now ships a `<asset>.tar.gz.sha256` checksum, and the
+  `curl | sh` install script (and the GitHub Action that wraps it) verifies the download against
+  it before installing. A missing checksum or a mismatch aborts the install — fail closed —
+  rather than running a corrupted or tampered binary (#39).
 
 ### Changed
 - `surf stats` is much faster on large histories. It previously recomputed the hub claim set at

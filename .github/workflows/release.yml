@@ -27,10 +27,22 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }} -p surf-cli
       - name: Package
         run: tar -czf surf-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release surf
+      - name: Checksum
+        # Per-asset SHA-256 so install.sh can verify integrity before installing (#39). macOS
+        # ships `shasum`, Linux ships `sha256sum`; both emit `<hash>  <file>`.
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum surf-${{ matrix.target }}.tar.gz > surf-${{ matrix.target }}.tar.gz.sha256
+          else
+            shasum -a 256 surf-${{ matrix.target }}.tar.gz > surf-${{ matrix.target }}.tar.gz.sha256
+          fi
+          cat surf-${{ matrix.target }}.tar.gz.sha256
       - name: Upload to release
         uses: softprops/action-gh-release@v3
         with:
-          files: surf-${{ matrix.target }}.tar.gz
+          files: |
+            surf-${{ matrix.target }}.tar.gz
+            surf-${{ matrix.target }}.tar.gz.sha256
 
   notify-site:
     name: trigger docs sync on surface-site
