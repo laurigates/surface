@@ -16,7 +16,7 @@ anchors:
       uncovered symbol is reported once against the file's first anchoring hub. It runs only on
       files whose anchors all resolved cleanly, so coverage nags never pile onto broken anchors.
     at: surf-cli/src/lint.rs > lint_under_coverage
-    hash: 08e6a928b5d3
+    hash: 569a7e6fe417
   - claim: >
       AGENTS.md enforcement is opt-in (§11.6): only when the file carries a surf:hubs marker
       block does lint require it to link the configured hubs directory (which must exist),

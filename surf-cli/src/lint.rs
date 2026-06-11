@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use surf_core::{
-    find_renamed, parse_anchor, public_symbols, resolve, HashOpts, Lang, ResolveError,
+    find_renamed, parse_anchor, public_symbols, resolve, HashOpts, Lang, ResolveError, Surface,
 };
 
 /// Over an anchored span this fraction of its file, the anchor is "whole-file-ish" and any
@@ -374,8 +374,10 @@ fn lint_under_coverage(
         return;
     };
     // `public_symbols` measures the behaviour-bearing surface — top-level functions *and* the
-    // methods that make up most of a Python/Go API (#54) — not just top-level fns.
-    for sym in public_symbols(&source, lang) {
+    // methods that make up most of a Python/Go API (#54) — not just top-level fns. The nudge is
+    // about behaviour that can drift, so it stays on `Callables`; classes/constants (suggest's
+    // `--all`) are deliberately excluded here.
+    for sym in public_symbols(&source, lang, Surface::Callables) {
         if !covered.contains(&sym) {
             let path = sym.join(" > ");
             findings.push(Finding {

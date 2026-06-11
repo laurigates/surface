@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `surf suggest --all` additionally proposes the non-callable anchor targets `resolve` already
+  accepts but `suggest` previously hid: top-level classes, module-level constants and type
+  aliases, and class attributes (Python). The default stays callables-only (functions + methods)
+  to avoid over-anchoring fatigue. Closes the gap where those kinds were anchorable by hand yet
+  undiscoverable via `suggest` (#52).
+
 ### Fixed
 - `surf lint`'s under-coverage nudge is no longer workspace-blind and no longer skips methods.
   Coverage is now computed across the whole workspace, so splitting one file's claims across two
