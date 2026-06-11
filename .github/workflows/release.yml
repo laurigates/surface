@@ -77,9 +77,9 @@ jobs:
         run: |
           set -eu
           # Platform packages first so the shim's optionalDependencies resolve immediately.
-          npm publish --provenance --access public npm/surface-darwin-arm64
-          npm publish --provenance --access public npm/surface-linux-x64
-          npm publish --provenance --access public npm/surface
+          npm publish --provenance --access public ./npm/surface-darwin-arm64
+          npm publish --provenance --access public ./npm/surface-linux-x64
+          npm publish --provenance --access public ./npm/surface
 
   notify-site:
     name: trigger docs sync on surface-site
