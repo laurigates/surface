@@ -24,6 +24,7 @@ use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::process::ExitCode;
+use std::rc::Rc;
 use surf_core::{parse_anchor, parse_hub, REPORT_VERSION};
 
 #[derive(Debug, Clone)]
@@ -91,6 +92,22 @@ fn compute(ws: &Workspace, since: Option<&str>, until: Option<&str>) -> Result<S
 
     let (mut rs_n, mut rs_d, mut ip_n, mut ip_d) = (0, 0, 0, 0);
 
+    // Each commit needs the claim set at the commit (`after`) and at its parent (`before`); each
+    // `claims_at` spawns `git ls-tree` plus a `git show` per hub. Memoize by full commit SHA so a
+    // rev is walked at most once. On linear history `before(commit)` is `after(parent)`, so once
+    // the parent's SHA is canonicalized the two share a key and ~half the work is a cache hit;
+    // merges/gaps simply miss and populate the cache. `Rc` shares the cached set without a deep
+    // clone per hit.
+    let mut cache: HashMap<String, Rc<Vec<ClaimRec>>> = HashMap::new();
+    let mut claims_for = |sha: &str| -> Rc<Vec<ClaimRec>> {
+        if let Some(hit) = cache.get(sha) {
+            return Rc::clone(hit);
+        }
+        let computed = Rc::new(claims_at(&ws.root, sha, &patterns));
+        cache.insert(sha.to_string(), Rc::clone(&computed));
+        computed
+    };
+
     for sha in &commits {
         let changed: HashSet<String> = git::commit_files(&ws.root, sha)
             .unwrap_or_default()
@@ -100,14 +117,18 @@ fn compute(ws: &Workspace, since: Option<&str>, until: Option<&str>) -> Result<S
             continue;
         }
 
-        let after = claims_at(&ws.root, sha, &patterns);
-        let before = claims_at(&ws.root, &format!("{sha}^"), &patterns);
+        let after = claims_for(sha);
+        // Canonicalize `sha^` to the parent's SHA so `before` reuses the parent's cached `after`.
+        let before = match git::rev_parse(&ws.root, &format!("{sha}^")) {
+            Some(parent) => claims_for(&parent),
+            None => Rc::new(Vec::new()),
+        };
         let before_by_key: HashMap<(&str, &str), &ClaimRec> = before
             .iter()
             .map(|c| ((c.hub.as_str(), c.id.as_str()), c))
             .collect();
 
-        for c in &after {
+        for c in after.iter() {
             let prev = before_by_key.get(&(c.hub.as_str(), c.id.as_str())).copied();
 
             // Rubber-stamp: an already-sealed claim whose hash value changed this commit.
@@ -282,6 +303,36 @@ mod tests {
         assert_eq!((r.rubber_stamp.n, r.rubber_stamp.d), (1, 1));
         // The same commit touched the anchored file and updated the hash → in-place.
         assert_eq!((r.in_place.n, r.in_place.d), (1, 1));
+    }
+
+    #[test]
+    fn memoized_before_state_is_correct_across_a_linear_chain() {
+        // Three re-stamps over a 4-commit linear history. Each commit's `before` is its parent's
+        // `after`, served from the SHA-keyed cache — a regression in that reuse (stale or
+        // mis-keyed entry) would skew the counts away from the expected 3/3.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        write(root, "surf.toml", "");
+
+        let anchor = "src/m.rs > add";
+        let v1 = "pub fn add(a: i64) -> i64 { a + 1 }\n";
+        write(root, "src/m.rs", v1);
+        write(root, "hubs/a.md", &hub("add increments", anchor, &rust_hash(v1, anchor)));
+        commit(root, "seed");
+
+        // Each later commit edits the body and re-seals with identical prose — a rubber stamp.
+        for n in 2..=4 {
+            let v = format!("pub fn add(a: i64) -> i64 {{ a + {n} }}\n");
+            write(root, "src/m.rs", &v);
+            write(root, "hubs/a.md", &hub("add increments", anchor, &rust_hash(&v, anchor)));
+            commit(root, &format!("bump {n}"));
+        }
+
+        let r = compute(&ws(root), None, None).unwrap();
+        // Three re-stamp commits, all prose-unchanged; each also touched the anchored file.
+        assert_eq!((r.rubber_stamp.n, r.rubber_stamp.d), (3, 3));
+        assert_eq!((r.in_place.n, r.in_place.d), (3, 3));
     }
 
     #[test]

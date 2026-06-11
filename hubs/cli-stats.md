@@ -15,7 +15,7 @@ anchors:
       the claim's stored hash was updated in that same commit. Claim identity is its at: site(s),
       and missing git history is a hard error rather than a silent zero.
     at: surf-cli/src/stats.rs > compute
-    hash: 55561222d721
+    hash: a33f3f29deed
 refs: ["../docs/guides/stats.md"]
 ---
 
