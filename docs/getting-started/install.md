@@ -29,7 +29,7 @@ See [CI integration](../guides/ci-integration.md) for the checkout-depth rule an
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.3.0
+  rev: v0.5.0
   hooks:
     - id: surf-check
 ```

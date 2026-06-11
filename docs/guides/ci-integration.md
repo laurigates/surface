@@ -42,7 +42,7 @@ the merge base — a shallow `git fetch <ref>` is plenty, still not `fetch-depth
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.3.0
+  rev: v0.5.0
   hooks:
     - id: surf-check
 ```
