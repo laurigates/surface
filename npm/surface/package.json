@@ -1,0 +1,31 @@
+{
+  "name": "@gradientdev/surface",
+  "version": "0.0.0",
+  "description": "Surface — a deterministic gate that blocks merges when docs drift from the code they describe. Thin npm shim over the prebuilt `surf` binary.",
+  "keywords": [
+    "documentation",
+    "ci",
+    "gate",
+    "docs-as-code",
+    "pre-commit"
+  ],
+  "homepage": "https://github.com/Connorrmcd6/surface",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Connorrmcd6/surface.git"
+  },
+  "license": "Apache-2.0",
+  "bin": {
+    "surf": "bin/surf.js"
+  },
+  "files": [
+    "bin/surf.js"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "optionalDependencies": {
+    "@gradientdev/surface-darwin-arm64": "0.0.0",
+    "@gradientdev/surface-linux-x64": "0.0.0"
+  }
+}
