@@ -7,6 +7,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Release integrity: each published binary now ships a `<asset>.tar.gz.sha256` checksum, and the
+  `curl | sh` install script (and the GitHub Action that wraps it) verifies the download against
+  it before installing. A missing checksum or a mismatch aborts the install — fail closed —
+  rather than running a corrupted or tampered binary (#39).
+
 ## [0.5.0] - 2026-06-09
 
 ### Fixed

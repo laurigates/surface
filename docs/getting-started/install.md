@@ -43,6 +43,10 @@ curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrm
 Prebuilt binaries are published for **macOS (Apple Silicon)** and **Linux (x86_64)**. On Intel
 macOS or other Unix architectures, build from source.
 
+Each release publishes a `<asset>.sha256` alongside every binary, and the install script verifies
+it before installing — a missing checksum or a mismatch aborts the install rather than running an
+unverified binary.
+
 ## Platform support
 
 | Platform | Status |
