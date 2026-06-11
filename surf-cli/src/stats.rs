@@ -78,12 +78,17 @@ pub fn run(
 }
 
 fn compute(ws: &Workspace, since: Option<&str>, until: Option<&str>) -> Result<StatsReport> {
+    // A bad hub glob in surf.toml must fail loudly: silently dropping it excludes hubs from the
+    // metrics with no signal (#38). stats already fails loudly when git can't answer; do the same
+    // for malformed config rather than reporting on a quietly-narrowed hub set.
     let patterns: Vec<glob::Pattern> = ws
         .config
         .hubs
         .iter()
-        .filter_map(|p| glob::Pattern::new(p).ok())
-        .collect();
+        .map(|p| {
+            glob::Pattern::new(p).map_err(|e| anyhow!("invalid hub glob \"{p}\" in surf.toml: {e}"))
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     // Unlike check's advisory git, stats *is* a history report: if git can't answer, fail loudly
     // rather than printing a misleading zero.
@@ -263,6 +268,16 @@ mod tests {
 
     fn ws(root: &Path) -> Workspace {
         Workspace::discover(root).unwrap()
+    }
+
+    #[test]
+    fn invalid_hub_glob_syntax_errors() {
+        // A malformed hub glob in surf.toml must fail loudly, not silently exclude hubs (#38).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write(root, "surf.toml", "hubs = [\"hubs/[.md\"]\n");
+        let err = compute(&ws(root), None, None).unwrap_err();
+        assert!(err.to_string().contains("hubs/["), "got: {err}");
     }
 
     #[test]

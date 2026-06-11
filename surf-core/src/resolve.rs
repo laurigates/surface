@@ -282,12 +282,29 @@ pub fn public_fns(source: &str, lang: Lang) -> Vec<String> {
     out
 }
 
+/// Which slice of a file's public surface [`public_symbols`] enumerates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    /// Behaviour-bearing only: top-level functions and the methods that make up most of a
+    /// Python/Go API. A claim documents behaviour that can drift, so pure data/types are out of
+    /// scope. This is what `lint`'s under-coverage nudge measures and what `suggest` proposes by
+    /// default.
+    Callables,
+    /// Everything anchorable: additionally top-level classes, module-level constants and type
+    /// aliases, and class attributes (Python). Drives `suggest --all`, so a user can *discover*
+    /// the non-callable targets `resolve` already accepts. Other languages enumerate the same
+    /// callables as `Callables` for now.
+    All,
+}
+
 /// Public symbols on a file's surface as resolvable anchor segment paths: top-level functions
 /// (`["foo"]`), and — unlike [`public_fns`] — the methods that make up most of a Python/Go API
-/// (`["Builder", "Set"]`). Same behavior-not-data scope as `public_fns`, so pure types
-/// (structs/enums/classes themselves) are never proposed — only their methods. Methods on Rust
-/// `impl` blocks and TS classes are out of scope here; only top-level fns are enumerated for them.
-pub fn public_symbols(source: &str, lang: Lang) -> Vec<Vec<String>> {
+/// (`["Builder", "Set"]`). With [`Surface::All`] it also proposes the non-callable Python targets
+/// `resolve` accepts: top-level classes (`["C"]`), module-level constants/type aliases
+/// (`["CONST"]`), and class attributes (`["C", "attr"]`). With [`Surface::Callables`] those are
+/// withheld, keeping the default (and the lint nudge) to behaviour. Methods on Rust `impl` blocks
+/// and TS classes remain out of scope; only top-level fns are enumerated for them.
+pub fn public_symbols(source: &str, lang: Lang, surface: Surface) -> Vec<Vec<String>> {
     let Some(tree) = parse_tree(source, lang) else {
         return Vec::new();
     };
@@ -297,14 +314,20 @@ pub fn public_symbols(source: &str, lang: Lang) -> Vec<Vec<String>> {
     let root = tree.root_node();
     let mut cursor = root.walk();
     for child in root.named_children(&mut cursor) {
-        collect_public_symbol(child, src, family, &mut out);
+        collect_public_symbol(child, src, family, surface, &mut out);
     }
     out.sort();
     out.dedup();
     out
 }
 
-fn collect_public_symbol(node: Node, src: &[u8], family: Family, out: &mut Vec<Vec<String>>) {
+fn collect_public_symbol(
+    node: Node,
+    src: &[u8],
+    family: Family,
+    surface: Surface,
+    out: &mut Vec<Vec<String>>,
+) {
     match family {
         Family::Rust => {
             if node.kind() == "function_item" && is_rust_pub(node, src) {
@@ -323,7 +346,7 @@ fn collect_public_symbol(node: Node, src: &[u8], family: Family, out: &mut Vec<V
                 out.extend(names.into_iter().map(|n| vec![n]));
             }
         }
-        Family::Python => collect_python_symbol(node, src, None, out),
+        Family::Python => collect_python_symbol(node, src, None, surface, out),
         Family::Go => match node.kind() {
             "function_declaration" => {
                 if let Some(name) = field_text(node, "name", src) {
@@ -350,18 +373,30 @@ fn collect_public_symbol(node: Node, src: &[u8], family: Family, out: &mut Vec<V
     }
 }
 
-/// `class` given: we're inside that class body, so non-underscore `def`s become
-/// `[Class, method]`. `None`: top level, so functions become `[fn]` and we descend one level
-/// into public classes to surface their methods (nested classes are not recursed into).
-fn collect_python_symbol(node: Node, src: &[u8], class: Option<&str>, out: &mut Vec<Vec<String>>) {
+/// `class` given: we're inside that class body, so non-underscore `def`s become `[Class, method]`
+/// and (under [`Surface::All`]) attributes become `[Class, attr]`. `None`: top level, so functions
+/// become `[fn]`, and we descend one level into public classes to surface their methods (nested
+/// classes are not recursed into). Under `All` we also emit the class itself (`[Class]`) and
+/// module-level constants/type aliases (`[NAME]`). Push helper appends the name under any
+/// enclosing class, skipping `_`-prefixed (non-public) names.
+fn collect_python_symbol(
+    node: Node,
+    src: &[u8],
+    class: Option<&str>,
+    surface: Surface,
+    out: &mut Vec<Vec<String>>,
+) {
+    let mut emit = |name: String| {
+        if !name.starts_with('_') {
+            let mut path: Vec<String> = class.into_iter().map(str::to_string).collect();
+            path.push(name);
+            out.push(path);
+        }
+    };
     match node.kind() {
         "function_definition" => {
             if let Some(name) = python_def_name(node, src) {
-                if !name.starts_with('_') {
-                    let mut path: Vec<String> = class.into_iter().map(str::to_string).collect();
-                    path.push(name);
-                    out.push(path);
-                }
+                emit(name);
             }
         }
         "class_definition" if class.is_none() => {
@@ -371,17 +406,30 @@ fn collect_python_symbol(node: Node, src: &[u8], class: Option<&str>, out: &mut 
             if name.starts_with('_') {
                 return;
             }
+            if surface == Surface::All {
+                out.push(vec![name.clone()]);
+            }
             if let Some(body) = node.child_by_field_name("body") {
                 let mut cursor = body.walk();
                 for c in body.named_children(&mut cursor) {
-                    collect_python_symbol(c, src, Some(&name), out);
+                    collect_python_symbol(c, src, Some(&name), surface, out);
                 }
             }
         }
-        "decorated_definition" => {
+        // Module- or class-level non-callable bindings (`CONST = ...`, `X: T = ...`, PEP 695
+        // `type X = ...`): anchorable and gateable, but withheld unless `--all` so the default
+        // suggestion stays behaviour-focused.
+        "assignment" | "type_alias_statement" if surface == Surface::All => {
+            if let Some(name) = python_def_name(node, src) {
+                emit(name);
+            }
+        }
+        // tree-sitter wraps module/class-body statements (assignments) in `expression_statement`;
+        // a decorator wraps the def. Both are transparent — recurse, preserving class + surface.
+        "decorated_definition" | "expression_statement" => {
             let mut cursor = node.walk();
             for c in node.named_children(&mut cursor) {
-                collect_python_symbol(c, src, class, out);
+                collect_python_symbol(c, src, class, surface, out);
             }
         }
         _ => {}
@@ -643,7 +691,7 @@ class _Hidden:
         pass
 ";
         assert_eq!(
-            public_symbols(src, Lang::Python),
+            public_symbols(src, Lang::Python, Surface::Callables),
             vec![
                 vec!["C".to_string(), "visible".to_string()],
                 vec!["top".to_string()],
@@ -660,7 +708,7 @@ class C:
         pass
 ";
         assert_eq!(
-            public_symbols(src, Lang::Python),
+            public_symbols(src, Lang::Python, Surface::Callables),
             vec![vec!["C".to_string(), "value".to_string()]]
         );
     }
@@ -680,7 +728,7 @@ type priv struct{}
 func (p *priv) Exported() {}
 ";
         assert_eq!(
-            public_symbols(src, Lang::Go),
+            public_symbols(src, Lang::Go, Surface::Callables),
             vec![
                 vec!["Builder".to_string(), "Set".to_string()],
                 vec!["Labels".to_string(), "String".to_string()],
@@ -692,6 +740,64 @@ func (p *priv) Exported() {}
     #[test]
     fn rust_symbols_are_top_level_fns_only() {
         let src = "pub fn a() {}\nfn b() {}\nimpl S { pub fn m(&self) {} }\n";
-        assert_eq!(public_symbols(src, Lang::Rust), vec![vec!["a".to_string()]]);
+        assert_eq!(public_symbols(src, Lang::Rust, Surface::Callables), vec![vec!["a".to_string()]]);
+    }
+
+    #[test]
+    fn python_all_adds_classes_and_non_callables() {
+        // Every kind #28 made anchorable, plus the class itself — withheld under Callables,
+        // proposed under All. `_`-prefixed names stay private in both modes (#52).
+        let src = "\
+CONST_VALUE = 42
+MyAlias = dict[str, int]
+type NewAlias = int
+_hidden = 1
+
+def top_level_func(x):
+    return x
+
+class TopLevelClass:
+    attr: int = 1
+    _secret = 2
+    def method(self):
+        return self.attr
+";
+        // Callables: only the function and the method.
+        assert_eq!(
+            public_symbols(src, Lang::Python, Surface::Callables),
+            vec![
+                vec!["TopLevelClass".to_string(), "method".to_string()],
+                vec!["top_level_func".to_string()],
+            ]
+        );
+        // All: also the class, both module-level aliases, the constant, and the class attribute.
+        assert_eq!(
+            public_symbols(src, Lang::Python, Surface::All),
+            vec![
+                vec!["CONST_VALUE".to_string()],
+                vec!["MyAlias".to_string()],
+                vec!["NewAlias".to_string()],
+                vec!["TopLevelClass".to_string()],
+                vec!["TopLevelClass".to_string(), "attr".to_string()],
+                vec!["TopLevelClass".to_string(), "method".to_string()],
+                vec!["top_level_func".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn all_is_callables_only_for_non_python() {
+        // The non-callable extension is Python-scoped for now; --all must not change Rust/Go/TS
+        // output, so a Rust repo's lint nudge and suggest stay identical across modes.
+        let rust = "pub fn a() {}\npub struct S;\npub const K: u8 = 1;\n";
+        assert_eq!(
+            public_symbols(rust, Lang::Rust, Surface::All),
+            public_symbols(rust, Lang::Rust, Surface::Callables)
+        );
+        let go = "package p\nfunc Top() {}\ntype Builder struct{}\nconst K = 1\n";
+        assert_eq!(
+            public_symbols(go, Lang::Go, Surface::All),
+            public_symbols(go, Lang::Go, Surface::Callables)
+        );
     }
 }

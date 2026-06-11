@@ -72,11 +72,15 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
     },
-    /// Propose anchors for public functions no hub covers yet (suggestions only; never writes).
+    /// Propose anchors for public symbols no hub covers yet (suggestions only; never writes).
     Suggest {
         /// Source globs to scan, relative to the workspace root (e.g. "surf-core/src/**/*.rs").
         #[arg(required = true)]
         globs: Vec<String>,
+        /// Also propose non-callable targets: top-level classes, module-level constants and type
+        /// aliases, and class attributes (Python). Default is callables (functions + methods).
+        #[arg(long)]
+        all: bool,
         /// Output format for the suggestions.
         #[arg(long, value_enum, default_value_t = Format::Human)]
         format: Format,
@@ -139,7 +143,7 @@ fn run() -> anyhow::Result<std::process::ExitCode> {
             follow,
             format,
         } => verify::run(&ws, target.as_deref(), follow, format),
-        Command::Suggest { globs, format } => suggest::run(&ws, &globs, format),
+        Command::Suggest { globs, all, format } => suggest::run(&ws, &globs, all, format),
         Command::For {
             path,
             symbol,

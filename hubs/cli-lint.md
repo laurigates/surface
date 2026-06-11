@@ -7,13 +7,16 @@ anchors:
       as does a file that git reports has moved. Block-level findings set a non-zero exit;
       warnings alone keep exit 0.
     at: surf-cli/src/lint.rs > lint_site
-    hash: fb1411796566
+    hash: bd4d37e231b6
   - claim: >
       Advisory granularity guidance (§8), never blocking: lint_under_coverage flags public
-      functions in a hub's already-anchored files that no claim covers — but only for files
-      whose anchors all resolved cleanly, so coverage nags never pile onto broken anchors.
+      symbols — top-level functions and methods — in an already-anchored file that no claim
+      covers. Coverage is workspace-wide: a symbol anchored by any hub is covered, so a second
+      hub touching the same file is never nagged about symbols another hub owns, and each
+      uncovered symbol is reported once against the file's first anchoring hub. It runs only on
+      files whose anchors all resolved cleanly, so coverage nags never pile onto broken anchors.
     at: surf-cli/src/lint.rs > lint_under_coverage
-    hash: dad7767e0594
+    hash: 569a7e6fe417
   - claim: >
       AGENTS.md enforcement is opt-in (§11.6): only when the file carries a surf:hubs marker
       block does lint require it to link the configured hubs directory (which must exist),
@@ -29,5 +32,6 @@ refs: []
 `lint_workspace` loads every hub and runs `lint_site` over each anchor; `run` prints the
 findings and chooses the exit code. Beyond resolution, lint emits advisory warnings (§8) that
 nudge granularity: a near-whole-file span (`lint_coarse_span`), too many anchors in one hub,
-and public functions with no covering claim (`lint_under_coverage`). It also validates the
+and public symbols — functions and methods — with no covering claim anywhere in the workspace
+(`lint_under_coverage`). It also validates the
 `AGENTS.md` pointer block (`lint_agents_pointer`).
