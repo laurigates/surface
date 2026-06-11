@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `surf lint`'s under-coverage nudge is no longer workspace-blind and no longer skips methods.
+  Coverage is now computed across the whole workspace, so splitting one file's claims across two
+  hubs no longer makes each hub warn about the symbols the other one anchors; and the measured
+  public surface now includes methods (`Type > method`), not just top-level functions, matching
+  what `suggest` proposes (#54).
+
 ## [0.5.0] - 2026-06-09
 
 ### Fixed
