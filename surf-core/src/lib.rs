@@ -18,6 +18,6 @@ pub use hub::{parse_hub, set_anchor_at, set_anchor_hash, At, Claim, Frontmatter,
 pub use lang::Lang;
 pub use rename::find_renamed;
 pub use report::{CheckReport, Divergence, DivergenceKind, REPORT_VERSION};
-pub use resolve::{public_fns, public_symbols, resolve, ResolveError, Span};
+pub use resolve::{public_fns, public_symbols, resolve, ResolveError, Span, Surface};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
