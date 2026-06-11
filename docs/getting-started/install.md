@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4   # plain checkout — do NOT set fetch-depth: 0
-      - uses: Connorrmcd6/surface@v0.5.0
+      - uses: Connorrmcd6/surface@v0.6.0
 ```
 
 See [CI integration](../guides/ci-integration.md) for the checkout-depth rule and scoping flags.
@@ -29,7 +29,7 @@ See [CI integration](../guides/ci-integration.md) for the checkout-depth rule an
 
 ```yaml
 - repo: https://github.com/Connorrmcd6/surface
-  rev: v0.5.0
+  rev: v0.6.0
   hooks:
     - id: surf-check
 ```
