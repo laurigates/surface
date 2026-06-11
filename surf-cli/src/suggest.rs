@@ -34,7 +34,11 @@ struct ScanResult {
 }
 
 pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Result<ExitCode> {
-    let surface = if all { Surface::All } else { Surface::Callables };
+    let surface = if all {
+        Surface::All
+    } else {
+        Surface::Callables
+    };
     let covered = covered_anchors(ws)?;
     let result = scan(ws, globs, &covered, surface)?;
 
@@ -336,7 +340,13 @@ mod tests {
     #[test]
     fn unsupported_language_match_is_distinguished() {
         let (_t, ws) = ws_with(&[("notes.txt", "hello\n")]);
-        let r = scan(&ws, &["*.txt".to_string()], &covered_anchors(&ws).unwrap(), Surface::Callables).unwrap();
+        let r = scan(
+            &ws,
+            &["*.txt".to_string()],
+            &covered_anchors(&ws).unwrap(),
+            Surface::Callables,
+        )
+        .unwrap();
         assert_eq!(r.globs[0].files_matched, 1);
         assert_eq!(r.globs[0].supported_matched, 0);
     }

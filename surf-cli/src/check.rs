@@ -339,8 +339,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         write(root, "surf.toml", "");
-        let err = check_workspace(&ws_at(root.to_path_buf()), None, &["src/[".to_string()])
-            .unwrap_err();
+        let err =
+            check_workspace(&ws_at(root.to_path_buf()), None, &["src/[".to_string()]).unwrap_err();
         assert!(err.to_string().contains("src/["), "got: {err}");
     }
 

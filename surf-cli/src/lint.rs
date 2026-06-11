@@ -561,11 +561,7 @@ mod tests {
         let f = lint_workspace(&ws).unwrap();
         assert_eq!(f.len(), 1, "expected one method nudge, got {f:?}");
         assert_eq!(f[0].severity, Severity::Warn);
-        assert!(
-            f[0].message.contains("`Builder > Set`"),
-            "{}",
-            f[0].message
-        );
+        assert!(f[0].message.contains("`Builder > Set`"), "{}", f[0].message);
     }
 
     #[test]

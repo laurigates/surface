@@ -333,14 +333,22 @@ mod tests {
         let anchor = "src/m.rs > add";
         let v1 = "pub fn add(a: i64) -> i64 { a + 1 }\n";
         write(root, "src/m.rs", v1);
-        write(root, "hubs/a.md", &hub("add increments", anchor, &rust_hash(v1, anchor)));
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v1, anchor)),
+        );
         commit(root, "seed");
 
         // Each later commit edits the body and re-seals with identical prose — a rubber stamp.
         for n in 2..=4 {
             let v = format!("pub fn add(a: i64) -> i64 {{ a + {n} }}\n");
             write(root, "src/m.rs", &v);
-            write(root, "hubs/a.md", &hub("add increments", anchor, &rust_hash(&v, anchor)));
+            write(
+                root,
+                "hubs/a.md",
+                &hub("add increments", anchor, &rust_hash(&v, anchor)),
+            );
             commit(root, &format!("bump {n}"));
         }
 

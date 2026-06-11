@@ -740,7 +740,10 @@ func (p *priv) Exported() {}
     #[test]
     fn rust_symbols_are_top_level_fns_only() {
         let src = "pub fn a() {}\nfn b() {}\nimpl S { pub fn m(&self) {} }\n";
-        assert_eq!(public_symbols(src, Lang::Rust, Surface::Callables), vec![vec!["a".to_string()]]);
+        assert_eq!(
+            public_symbols(src, Lang::Rust, Surface::Callables),
+            vec![vec!["a".to_string()]]
+        );
     }
 
     #[test]
