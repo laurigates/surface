@@ -8,13 +8,13 @@ inside the platform package, and npm installs only the one matching the host.
 
 | Package | Role |
 | --- | --- |
-| `@gradientdev/surface` (`surface/`) | Thin shim. Its `bin/surf.js` launcher resolves the platform package's binary at runtime and execs it. Lists the platform packages as `optionalDependencies`. |
-| `@gradientdev/surface-darwin-arm64` | The `surf` binary for macOS (Apple Silicon). `os`/`cpu` pin it so npm installs it only on a match. |
-| `@gradientdev/surface-linux-x64` | The `surf` binary for Linux (x86_64). |
+| `@gradient-tools/surface` (`surface/`) | Thin shim. Its `bin/surf.js` launcher resolves the platform package's binary at runtime and execs it. Lists the platform packages as `optionalDependencies`. |
+| `@gradient-tools/surface-darwin-arm64` | The `surf` binary for macOS (Apple Silicon). `os`/`cpu` pin it so npm installs it only on a match. |
+| `@gradient-tools/surface-linux-x64` | The `surf` binary for Linux (x86_64). |
 
-When a user runs `npm install @gradientdev/surface`, npm pulls the shim and—via the `os`/`cpu`
+When a user runs `npm install @gradient-tools/surface`, npm pulls the shim and—via the `os`/`cpu`
 gates on the optional deps—exactly one platform package. The other platform packages are skipped
-without error (that's why they're *optional*). `npx @gradientdev/surface check` then runs the
+without error (that's why they're *optional*). `npx @gradient-tools/surface check` then runs the
 real binary.
 
 The platform list is kept in lockstep across three places: the targets `release.yml` builds, the
@@ -31,7 +31,7 @@ The committed `package.json` files carry a `0.0.0` placeholder. On each `vX.Y.Z`
    `surface-<platform>/bin/`.
 3. `npm publish --access public` for each platform package, then the shim.
 
-Publishing requires the `NPM_TOKEN` repo secret and ownership of the `@gradientdev` npm org.
+Publishing requires the `NPM_TOKEN` repo secret and ownership of the `@gradient-tools` npm org.
 
 ## Local smoke test
 

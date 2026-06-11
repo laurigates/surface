@@ -1,7 +1,7 @@
 {
-  "name": "@gradientdev/surface-darwin-arm64",
+  "name": "@gradient-tools/surface-darwin-arm64",
   "version": "0.0.0",
-  "description": "Prebuilt `surf` binary for macOS (Apple Silicon). Installed automatically by @gradientdev/surface; not meant to be depended on directly.",
+  "description": "Prebuilt `surf` binary for macOS (Apple Silicon). Installed automatically by @gradient-tools/surface; not meant to be depended on directly.",
   "homepage": "https://github.com/Connorrmcd6/surface",
   "repository": {
     "type": "git",

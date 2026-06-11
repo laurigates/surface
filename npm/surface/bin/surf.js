@@ -13,8 +13,8 @@ const { spawnSync } = require("child_process");
 // Map Node's (platform, arch) to the package that carries the matching binary. Keep in lockstep
 // with the targets release.yml builds and with the shim's optionalDependencies.
 const PACKAGE_BY_PLATFORM = {
-  "darwin-arm64": "@gradientdev/surface-darwin-arm64",
-  "linux-x64": "@gradientdev/surface-linux-x64",
+  "darwin-arm64": "@gradient-tools/surface-darwin-arm64",
+  "linux-x64": "@gradient-tools/surface-linux-x64",
 };
 
 function resolveBinary() {
@@ -22,7 +22,7 @@ function resolveBinary() {
   const pkg = PACKAGE_BY_PLATFORM[key];
   if (!pkg) {
     throw new Error(
-      `@gradientdev/surface: no prebuilt binary for ${key}.\n` +
+      `@gradient-tools/surface: no prebuilt binary for ${key}.\n` +
         `  Supported: ${Object.keys(PACKAGE_BY_PLATFORM).join(", ")}.\n` +
         `  Install from source instead: cargo install --git https://github.com/Connorrmcd6/surface surf-cli`
     );
@@ -34,7 +34,7 @@ function resolveBinary() {
     manifest = require.resolve(`${pkg}/package.json`);
   } catch {
     throw new Error(
-      `@gradientdev/surface: the platform package ${pkg} is not installed.\n` +
+      `@gradient-tools/surface: the platform package ${pkg} is not installed.\n` +
         `  If you installed with --no-optional or --omit=optional, reinstall without it.`
     );
   }
@@ -51,7 +51,7 @@ try {
 
 const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
 if (result.error) {
-  process.stderr.write(`@gradientdev/surface: failed to run ${binary}: ${result.error.message}\n`);
+  process.stderr.write(`@gradient-tools/surface: failed to run ${binary}: ${result.error.message}\n`);
   process.exit(1);
 }
 // Mirror the binary's exit code so `surf check` keeps gating CI through the shim.

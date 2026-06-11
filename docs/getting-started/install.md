@@ -52,8 +52,8 @@ unverified binary.
 For JS-ecosystem projects, install via npm (or run ad-hoc with `npx`):
 
 ```sh
-npm install --save-dev @gradientdev/surface
-npx @gradientdev/surface check
+npm install --save-dev @gradient-tools/surface
+npx @gradient-tools/surface check
 ```
 
 A thin shim package pulls in the prebuilt binary for your platform via `optionalDependencies`

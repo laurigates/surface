@@ -1,5 +1,5 @@
 {
-  "name": "@gradientdev/surface",
+  "name": "@gradient-tools/surface",
   "version": "0.0.0",
   "description": "Surface — a deterministic gate that blocks merges when docs drift from the code they describe. Thin npm shim over the prebuilt `surf` binary.",
   "keywords": [
@@ -25,7 +25,7 @@
     "node": ">=16"
   },
   "optionalDependencies": {
-    "@gradientdev/surface-darwin-arm64": "0.0.0",
-    "@gradientdev/surface-linux-x64": "0.0.0"
+    "@gradient-tools/surface-darwin-arm64": "0.0.0",
+    "@gradient-tools/surface-linux-x64": "0.0.0"
   }
 }
