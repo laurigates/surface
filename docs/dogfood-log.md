@@ -6,6 +6,48 @@ did about it, the lesson.* Keep it honest; the failures are the interesting part
 
 ---
 
+## 2026-06-11 — What an anchor can reach, and what it can't
+
+**Context:** PR 3 of 0.6.0 (`#52`) — adding `surf suggest --all` to propose Python classes and
+non-callables. It touched the shared `public_symbols` enumerator, the clap `Command` enum, and
+`suggest.rs`.
+
+**What happened — the reach:** `surf check` tripped on `hubs/cli-reference.md`, whose claim is
+anchored to the `Command` enum and whose prose *literally ends with an instruction to me*:
+
+```
+... Adding, removing, or renaming a command or flag, or changing a default, diverges this
+anchor — re-read docs/reference/commands.md before sealing.
+```
+
+`docs/reference/commands.md` is a hand-written human doc with **no anchor of its own** — nothing
+hashes it, so on its own it could rot freely. But because the *source of truth* (the clap enum)
+is anchored, and the claim encodes the cross-reference, adding `--all` forced the gate red until
+I went and updated that un-anchored sibling doc. An anchor on the thing that changes, used as a
+tripwire for the prose that describes it elsewhere. That's a pattern worth naming: you don't have
+to anchor the downstream doc, you anchor its *cause* and write the pointer into the claim.
+
+**What happened — the blind spot:** PR 2 had just re-pointed `lint`'s coverage nudge at
+`public_symbols`. In PR 3 I broadened `public_symbols` — and if I'd broadened its *default*
+instead of gating the new kinds behind `--all`, `lint` would have started flagging every
+unanchored class and constant in every repo. The gate could **not** have caught that: no hash
+changes, no anchored span moves — it's a semantic coupling between two callers of a shared
+function. I had to hold it in my head and design around it. Nothing in Surface protects you from
+it.
+
+**Why it's a good story:** the two halves are a clean contrast. The gate's reach is longer than
+"the span you anchored" — via an instruction in the claim it pulled an un-anchored doc into
+scope. But its blind spot is equally real: behaviour that emerges from how two functions share a
+third is invisible to a per-span hash. Anchor the cause, not just the symbol — and don't expect
+the gate to catch coupling it can't see.
+
+**Lesson / open question:** the `commands.md` trick (anchor the source of truth, point at the
+prose) generalizes — is it worth documenting as an authoring pattern? And the blind spot is the
+honest counterweight to the PR 1 entry's "what's anchored is enforced": *what's anchored is
+enforced span-locally; cross-symbol invariants still live only in your head.*
+
+---
+
 ## 2026-06-11 — The gate caught its own author lying
 
 **Context:** Implementing PR 1 of the 0.6.0 milestone (`#53` + `#38`) — making `surf for`,
