@@ -1,10 +1,23 @@
 ---
 title: Install
-description: Install Surface as a single static binary, or consume the gate via the GitHub Action, the pre-commit hook, or the install script.
+description: Install Surface via npm, the GitHub Action, the pre-commit hook, the curl installer, or from source.
 ---
 
-Surface is one static binary. Most repos never install it directly — they run the GitHub Action
-or the pre-commit hook, which fetch the binary for you.
+Surface is a single static binary. The quickest way to get it locally is **npm** (below). In CI,
+most repos never install it directly — they consume the **GitHub Action** or the **pre-commit
+hook**, which fetch the binary for you. There's also a `curl | sh` installer and a from-source
+build.
+
+## npm
+
+```sh
+npm install --save-dev @gradient-tools/surface
+npx @gradient-tools/surface check
+```
+
+A thin shim package pulls in the prebuilt binary for your platform via `optionalDependencies`
+(macOS Apple Silicon and Linux x86_64) — there is no `postinstall` download step. On an
+unsupported platform the shim errors and points you at the from-source build.
 
 ## GitHub Action
 
@@ -46,19 +59,6 @@ macOS or other Unix architectures, build from source.
 Each release publishes a `<asset>.sha256` alongside every binary, and the install script verifies
 it before installing — a missing checksum or a mismatch aborts the install rather than running an
 unverified binary.
-
-## npm
-
-For JS-ecosystem projects, install via npm (or run ad-hoc with `npx`):
-
-```sh
-npm install --save-dev @gradient-tools/surface
-npx @gradient-tools/surface check
-```
-
-A thin shim package pulls in the prebuilt binary for your platform via `optionalDependencies`
-(macOS Apple Silicon and Linux x86_64) — there is no `postinstall` download step. On an
-unsupported platform the shim errors and points you at the from-source build.
 
 ## Platform support
 
