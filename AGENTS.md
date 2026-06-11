@@ -45,6 +45,12 @@ Run the loop (binary builds to `target/debug/surf`; see `CONTRIBUTING.md` for bu
    functions with no claim. When you update a hub, update its *prose* to stay accurate, not just
    the hash.
 5. Record user-facing changes in [`CHANGELOG.md`](./CHANGELOG.md) under `[Unreleased]`.
+6. Hit a *notable* dogfooding moment? Log it in [`docs/dogfood-log.md`](./docs/dogfood-log.md).
+   This is the repo eating its own dogfood, so it produces good material — capture it while it's
+   fresh. The bar is "a reader would find this interesting," **not** every change: the gate
+   catching a real contract drift, a lint false-positive, surprising friction, an invariant that
+   was hard to express. Add a dated entry (newest first, template at the bottom of the file);
+   skip routine changes that worked as expected.
 
 Do not blindly `surf verify` to make the gate green — that is the rubber-stamping failure the
 tool exists to prevent. Verify means "I read the prose and it is still true."
@@ -53,6 +59,7 @@ tool exists to prevent. Verify means "I read the prose and it is still true."
 
 - [`hubs/`](./hubs/) — governed context, split per module; read only the hub(s) you need.
 - [`CHANGELOG.md`](./CHANGELOG.md) — what changed; update `[Unreleased]`.
+- [`docs/dogfood-log.md`](./docs/dogfood-log.md) — dated notes from using Surface on itself; add notable moments.
 - [`docs/index.md`](./docs/index.md) — documentation map (guides, reference, concepts).
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — build, test, format, lint commands and layout.
 - [`docs/surface-proposal.md`](./docs/surface-proposal.md) — the product spec (the `§` references in hubs).
