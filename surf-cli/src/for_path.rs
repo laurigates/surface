@@ -32,8 +32,12 @@ pub fn run(ws: &Workspace, path: &str, symbol: Option<&str>, format: Format) -> 
     // `suggest` does for its globs (#30, #53). Resolve against the root so a root-relative
     // query is checked where anchors actually live, not against the cwd.
     let query = normalize(ws, path);
-    if !ws.root.join(&query).is_file() {
-        bail!("no such file: {path} (path does not exist or is not a regular file)");
+    let target = ws.root.join(&query);
+    if target.is_dir() {
+        bail!("{path} is a directory — pass a file");
+    }
+    if !target.is_file() {
+        bail!("no such file: {path}");
     }
 
     let matches = find(ws, &query, symbol)?;
@@ -182,7 +186,8 @@ mod tests {
     #[test]
     fn run_errors_on_directory() {
         let (_t, ws) = ws_with(&[("hubs/a.md", HUB), ("src/x.rs", "fn foo() {}\n")]);
-        assert!(run(&ws, "src", None, Format::Human).is_err());
+        let err = run(&ws, "src", None, Format::Human).unwrap_err();
+        assert!(err.to_string().contains("is a directory"));
     }
 
     #[test]
