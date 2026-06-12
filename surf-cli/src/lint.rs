@@ -66,7 +66,11 @@ fn print_human(findings: &[Finding], blocks: usize, warns: usize) {
         };
         println!("{tag}: {} :: {}", f.hub, f.at);
         println!("    {}", f.message);
-        println!("    claim: {}", truncate(&f.claim, 80));
+        // Coverage warnings have no claim by definition — a bare `claim:` label reads
+        // like truncated output (#83).
+        if !f.claim.is_empty() {
+            println!("    claim: {}", truncate(&f.claim, 80));
+        }
     }
 
     if findings.is_empty() {

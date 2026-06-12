@@ -20,7 +20,7 @@ pub fn run(
     base: Option<&str>,
     files: &[String],
 ) -> Result<ExitCode> {
-    let divergences = check_workspace(ws, base, files)?;
+    let (divergences, unmatched_globs) = check_workspace(ws, base, files)?;
 
     match format {
         Format::Json => {
@@ -30,19 +30,29 @@ pub fn run(
         Format::Human => print_human(&divergences),
     }
 
-    Ok(if divergences.is_empty() {
+    // Warnings go to stderr so JSON stdout stays machine-parseable.
+    for pattern in &unmatched_globs {
+        eprintln!("surf check: --files glob \"{pattern}\" matched no anchored files.");
+    }
+    // A typo'd --files scopes the gate to nothing and must not go green (#78); but only
+    // when *every* glob matched nothing, so a partially-correct invocation still succeeds.
+    let all_empty = !files.is_empty() && unmatched_globs.len() == files.len();
+
+    Ok(if divergences.is_empty() && !all_empty {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     })
 }
 
+/// Returns the divergences in scope plus the `--files` patterns that matched no anchored
+/// file, so the caller can refuse to call a run that checked nothing "clean" (#78).
 fn check_workspace(
     ws: &Workspace,
     base: Option<&str>,
     files: &[String],
-) -> Result<Vec<Divergence>> {
-    let scope = Scope::build(ws, base, files)?;
+) -> Result<(Vec<Divergence>, Vec<String>)> {
+    let mut scope = Scope::build(ws, base, files)?;
     // Enrichment always needs a ref; an explicit --base doubles as the diff base, else HEAD.
     let enrich_base = base.unwrap_or("HEAD");
 
@@ -66,7 +76,7 @@ fn check_workspace(
             }
         }
     }
-    Ok(out)
+    Ok((out, scope.unmatched_globs()))
 }
 
 fn malformed_hub_divergence(hub: &str, err: &HubError) -> Divergence {
@@ -89,7 +99,15 @@ fn malformed_hub_divergence(hub: &str, err: &HubError) -> Divergence {
 /// every active filter (intersection). With neither filter active, every claim is in scope.
 struct Scope {
     changed: Option<std::collections::HashSet<String>>,
-    globs: Vec<glob::Pattern>,
+    globs: Vec<GlobFilter>,
+}
+
+/// One `--files` pattern plus whether it ever matched an anchored file, so a typo'd
+/// pattern that scopes the gate to nothing is detectable after the walk (#78).
+struct GlobFilter {
+    raw: String,
+    pattern: glob::Pattern,
+    matched: bool,
 }
 
 impl Scope {
@@ -98,18 +116,23 @@ impl Scope {
         // silently checking nothing.
         let changed = base.and_then(|b| git::changed_files(&ws.root, b));
         // Invalid glob *syntax* must fail loudly: silently dropping a `--files` pattern
-        // changes the gate's scope with no signal (#38). Zero *matches* stay fine.
+        // changes the gate's scope with no signal (#38).
         let globs = files
             .iter()
             .map(|p| {
                 glob::Pattern::new(p)
+                    .map(|pattern| GlobFilter {
+                        raw: p.clone(),
+                        pattern,
+                        matched: false,
+                    })
                     .map_err(|e| anyhow::anyhow!("invalid --files glob \"{p}\": {e}"))
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(Scope { changed, globs })
     }
 
-    fn includes(&self, claim: &surf_core::Claim) -> bool {
+    fn includes(&mut self, claim: &surf_core::Claim) -> bool {
         let anchor_files: Vec<String> = claim
             .at
             .sites()
@@ -117,19 +140,32 @@ impl Scope {
             .filter_map(|s| parse_anchor(s).ok().map(|a| a.file))
             .collect();
 
+        // Tally glob matches before the --base filter, so a glob that names anchored-but-
+        // unchanged files still counts as matched (only never-matching globs are suspect).
+        let mut glob_pass = self.globs.is_empty();
+        for g in &mut self.globs {
+            if anchor_files.iter().any(|f| g.pattern.matches(f)) {
+                g.matched = true;
+                glob_pass = true;
+            }
+        }
+        if !glob_pass {
+            return false;
+        }
         if let Some(changed) = &self.changed {
             if !anchor_files.iter().any(|f| changed.contains(f)) {
                 return false;
             }
         }
-        if !self.globs.is_empty()
-            && !anchor_files
-                .iter()
-                .any(|f| self.globs.iter().any(|g| g.matches(f)))
-        {
-            return false;
-        }
         true
+    }
+
+    fn unmatched_globs(&self) -> Vec<String> {
+        self.globs
+            .iter()
+            .filter(|g| !g.matched)
+            .map(|g| g.raw.clone())
+            .collect()
     }
 }
 
@@ -271,7 +307,10 @@ fn print_human(divergences: &[Divergence]) {
         if let Some(hint) = hint {
             println!("    {hint}");
         }
-        println!("    claim: {}", d.prose);
+        // Malformed-hub divergences have no claim — don't print a dangling label (#83).
+        if !d.prose.is_empty() {
+            println!("    claim: {}", d.prose);
+        }
     }
 
     if divergences.is_empty() {
@@ -330,6 +369,7 @@ mod tests {
 
         assert!(check_workspace(&ws_at(root.to_path_buf()), None, &[])
             .unwrap()
+            .0
             .is_empty());
     }
 
@@ -365,6 +405,7 @@ mod tests {
 
         assert!(check_workspace(&ws_at(root.to_path_buf()), None, &[])
             .unwrap()
+            .0
             .is_empty());
     }
 
@@ -380,7 +421,9 @@ mod tests {
             "---\nsummary: x\nanchors:\n  - claim: c\n    at: src/m.rs > add\n---\n",
         );
 
-        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[])
+            .unwrap()
+            .0;
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].kind, DivergenceKind::Unverified);
     }
@@ -425,7 +468,9 @@ mod tests {
             "pub fn add(a: i64, b: i64) -> i64 { a - b }\n",
         );
 
-        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[])
+            .unwrap()
+            .0;
         assert_eq!(d.len(), 1);
         let d = &d[0];
         assert_eq!(d.kind, DivergenceKind::Changed);
@@ -448,7 +493,9 @@ mod tests {
             "---\nsummary: x\nanchors:\n  - claim: c\n    at: schema.sql > users\n---\n",
         );
 
-        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[])
+            .unwrap()
+            .0;
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].kind, DivergenceKind::Unresolvable);
         assert_eq!(
@@ -469,7 +516,9 @@ mod tests {
             "---\nsummary: x\nanchors:\n  - claim: [unterminated\n---\n",
         );
 
-        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[])
+            .unwrap()
+            .0;
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].kind, DivergenceKind::Unresolvable);
         assert!(d[0].detail.as_deref().unwrap().starts_with("invalid hub"));
@@ -493,7 +542,9 @@ mod tests {
             &format!("---\nsummary: x\nanchors:\n  - claim: add sums\n    at: src/m.rs > add\n    hash: {h}\n---\n"),
         );
 
-        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[]).unwrap();
+        let d = check_workspace(&ws_at(root.to_path_buf()), None, &[])
+            .unwrap()
+            .0;
         let json = serde_json::to_value(CheckReport::new(d)).unwrap();
         assert_eq!(json["version"], surf_core::REPORT_VERSION);
         let obj = json["divergences"][0].as_object().unwrap();
@@ -539,13 +590,17 @@ mod tests {
         two_diverged_files(root);
         let ws = ws_at(root.to_path_buf());
 
-        assert_eq!(check_workspace(&ws, None, &[]).unwrap().len(), 2);
+        assert_eq!(check_workspace(&ws, None, &[]).unwrap().0.len(), 2);
 
-        let scoped = check_workspace(&ws, None, &["src/a.rs".to_string()]).unwrap();
+        let scoped = check_workspace(&ws, None, &["src/a.rs".to_string()])
+            .unwrap()
+            .0;
         assert_eq!(scoped.len(), 1);
         assert_eq!(scoped[0].at, "src/a.rs > add");
 
-        let globbed = check_workspace(&ws, None, &["src/b*.rs".to_string()]).unwrap();
+        let globbed = check_workspace(&ws, None, &["src/b*.rs".to_string()])
+            .unwrap()
+            .0;
         assert_eq!(globbed.len(), 1);
         assert_eq!(globbed[0].at, "src/b.rs > sub");
     }
@@ -582,9 +637,100 @@ mod tests {
         );
 
         let ws = ws_at(root.to_path_buf());
-        let scoped = check_workspace(&ws, Some("HEAD"), &[]).unwrap();
+        let scoped = check_workspace(&ws, Some("HEAD"), &[]).unwrap().0;
         assert_eq!(scoped.len(), 1);
         assert_eq!(scoped[0].at, "src/a.rs > add");
+    }
+
+    #[test]
+    fn zero_match_files_glob_is_reported_and_fails_alone() {
+        // A typo'd --files pattern scopes the gate to nothing; that must not read as a
+        // clean run (#78).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = "pub fn add(a: i64, b: i64) -> i64 { a + b }\n";
+        let h = stored_hash(src, "src/m.rs > add");
+        write(root, "surf.toml", "");
+        write(root, "src/m.rs", src);
+        write(
+            root,
+            "hubs/a.md",
+            &format!("---\nsummary: x\nanchors:\n  - claim: add sums\n    at: src/m.rs > add\n    hash: {h}\n---\n"),
+        );
+        let ws = ws_at(root.to_path_buf());
+
+        let typo = "src/lables/*.rs".to_string();
+        let (d, unmatched) = check_workspace(&ws, None, std::slice::from_ref(&typo)).unwrap();
+        assert!(d.is_empty());
+        assert_eq!(unmatched, vec![typo.clone()]);
+
+        let code = run(&ws, Format::Human, None, &[typo]).unwrap();
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
+    }
+
+    #[test]
+    fn partially_matching_files_globs_still_succeed() {
+        // One good glob + one typo: the typo is reported but a partially-correct
+        // invocation keeps a clean exit (mirrors `suggest`, #78).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = "pub fn add(a: i64, b: i64) -> i64 { a + b }\n";
+        let h = stored_hash(src, "src/m.rs > add");
+        write(root, "surf.toml", "");
+        write(root, "src/m.rs", src);
+        write(
+            root,
+            "hubs/a.md",
+            &format!("---\nsummary: x\nanchors:\n  - claim: add sums\n    at: src/m.rs > add\n    hash: {h}\n---\n"),
+        );
+        let ws = ws_at(root.to_path_buf());
+
+        let globs = vec!["src/*.rs".to_string(), "zzz/nope/*.go".to_string()];
+        let (d, unmatched) = check_workspace(&ws, None, &globs).unwrap();
+        assert!(d.is_empty());
+        assert_eq!(unmatched, vec!["zzz/nope/*.go".to_string()]);
+
+        let code = run(&ws, Format::Human, None, &globs).unwrap();
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
+    }
+
+    #[test]
+    fn files_glob_matching_unchanged_anchors_under_base_is_not_flagged() {
+        // With --base narrowing scope to changed files, a glob that names anchored but
+        // unchanged files is still a *valid* glob — it must not trip the zero-match guard.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        two_diverged_files(root);
+        git(root, &["init", "-q"]);
+        git(
+            root,
+            &["-c", "user.email=t@t", "-c", "user.name=t", "add", "."],
+        );
+        git(
+            root,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "v0",
+            ],
+        );
+        // Only src/a.rs changes; the glob targets the *unchanged* src/b.rs.
+        write(
+            root,
+            "src/a.rs",
+            "pub fn add(a: i64, b: i64) -> i64 { a * b }\n",
+        );
+        let ws = ws_at(root.to_path_buf());
+
+        let (d, unmatched) =
+            check_workspace(&ws, Some("HEAD"), &["src/b*.rs".to_string()]).unwrap();
+        assert!(d.is_empty()); // b is unchanged and a is excluded by the glob
+        assert!(unmatched.is_empty(), "glob matched an anchored file");
     }
 
     #[test]
@@ -593,6 +739,6 @@ mod tests {
         let root = tmp.path();
         two_diverged_files(root);
         let ws = ws_at(root.to_path_buf());
-        assert_eq!(check_workspace(&ws, None, &[]).unwrap().len(), 2);
+        assert_eq!(check_workspace(&ws, None, &[]).unwrap().0.len(), 2);
     }
 }

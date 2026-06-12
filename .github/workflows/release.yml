@@ -84,6 +84,26 @@ jobs:
           npm publish --provenance --access public ./npm/surface-linux-x64
           npm publish --provenance --access public ./npm/surface-linux-arm64
           npm publish --provenance --access public ./npm/surface
+      - name: Verify versions are visible on the registry
+        run: |
+          set -eu
+          version="${GITHUB_REF_NAME#v}"
+          # `npm publish` exiting 0 is not proof the version exists: the registry has
+          # silently dropped freshly published versions post-publish (#80; v0.6.0 and
+          # v0.6.1 both ended with zero versions despite green runs). Poll until each
+          # package is actually fetchable and fail the release if any never appears.
+          for pkg in @gradient-tools/surface-darwin-arm64 @gradient-tools/surface-linux-x64 @gradient-tools/surface-linux-arm64 @gradient-tools/surface; do
+            for attempt in $(seq 1 10); do
+              if [ "$(npm view "$pkg@$version" version 2>/dev/null || true)" = "$version" ]; then
+                echo "$pkg@$version is live"
+                continue 2
+              fi
+              echo "$pkg@$version not visible yet (attempt $attempt/10)"
+              sleep 30
+            done
+            echo "::error::$pkg@$version never appeared on the registry — publish reported success but the version is not fetchable"
+            exit 1
+          done
 
   notify-site:
     name: trigger docs sync on surface-site
