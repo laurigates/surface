@@ -63,7 +63,9 @@ src/service.ts > TokenService > rotate
   (`X = Literal[...]`, `type X = ...`), and class attributes (`Class > attr`); in Rust/Go,
   `const`/`static`/`var` items. Anchor the value whose drift the sentence is about.
 - **`@N`** disambiguates genuine name collisions (1-based), e.g. two overloads:
-  `src/api.ts > handler@2`.
+  `src/api.ts > handler@2`. Python `@overload` sets are the exception: consecutive stubs plus
+  their implementation resolve as *one* symbol, so the bare name works and the hash covers
+  every signature.
 - **Multiple sites** — an `at:` list combines its sites into one hash, so the claim is stale if
   *any* listed span changes:
   ```yaml

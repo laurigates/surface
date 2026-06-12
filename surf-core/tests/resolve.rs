@@ -308,3 +308,74 @@ fn python_import_fallback_branches_resolve_positionally() {
     let fallback = span(GUARDED_PY, Lang::Python, "auth.py > parse @2");
     assert!(snippet(GUARDED_PY, fallback).contains("return None"));
 }
+
+// --- Python @overload groups are one anchorable unit (#82) ------------------
+
+const OVERLOADED_PY: &str = r#"
+from typing import overload
+import typing
+
+@overload
+def probe(x: int) -> int: ...
+@overload
+def probe(x: str) -> str: ...
+def probe(x):
+    return x
+
+class Client:
+    @typing.overload
+    def fetch(self, key: int) -> int: ...
+    @typing.overload
+    def fetch(self, key: str) -> str: ...
+    def fetch(self, key):
+        return key
+
+def plain(): ...
+def plain(): ...
+"#;
+
+#[test]
+fn python_overload_group_resolves_without_index() {
+    // Stubs + impl are one logical symbol: no Ambiguous, and the span covers the whole
+    // group so any stub signature is inside the gated bytes.
+    let s = span(OVERLOADED_PY, Lang::Python, "f.py > probe");
+    let text = snippet(OVERLOADED_PY, s);
+    assert!(
+        text.contains("def probe(x: int) -> int"),
+        "span starts at the first stub"
+    );
+    assert!(text.contains("return x"), "span reaches the implementation");
+}
+
+#[test]
+fn python_typing_dotted_overload_groups_methods_too() {
+    let s = span(OVERLOADED_PY, Lang::Python, "f.py > Client > fetch");
+    let text = snippet(OVERLOADED_PY, s);
+    assert!(text.contains("key: int"));
+    assert!(text.contains("return key"));
+}
+
+#[test]
+fn python_non_overload_duplicates_stay_ambiguous() {
+    // Grouping is driven by the @overload decorator, not by name collision alone.
+    match err(OVERLOADED_PY, Lang::Python, "f.py > plain") {
+        ResolveError::Ambiguous { count, .. } => assert_eq!(count, 2),
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+}
+
+#[test]
+fn python_nested_symbol_resolves_through_overload_group() {
+    let src = r#"
+from typing import overload
+
+@overload
+def outer(x: int) -> int: ...
+def outer(x):
+    def inner(y):
+        return y * 2
+    return inner(x)
+"#;
+    let s = span(src, Lang::Python, "f.py > outer > inner");
+    assert!(snippet(src, s).contains("y * 2"));
+}
