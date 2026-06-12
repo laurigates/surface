@@ -4,9 +4,12 @@ anchors:
   - claim: >
       The generic resolver treats a scope as a *set* of nodes, so a type and its impl/methods
       (which share a name) both get descended — `Type > method` is unique even when `Type`
-      alone is ambiguous. Resolves to exactly one node or returns NotFound/Ambiguous.
-    at: surf-core/src/resolve.rs > resolve_node
-    hash: 94f8e4052a2c
+      alone is ambiguous. Resolves to exactly one *logical symbol* or returns
+      NotFound/Ambiguous; usually one node, but a Python @overload group (consecutive
+      same-name stubs plus their implementation, in the same scope) counts as one match, so
+      the bare name resolves without @N and the gated span covers every overload signature.
+    at: surf-core/src/resolve.rs > resolve_nodes
+    hash: a704a3bbec34
   - claim: >
       Go is resolved by a dedicated path: its symbols are flat (no nested declarations) and
       methods attach to a type by receiver, so `Type > Method` matches a method_declaration
@@ -23,5 +26,7 @@ refs: []
 
 # Resolution
 
-`resolve_node` is the load-bearing primitive: anchor + parsed tree → exact byte/line span.
-TypeScript/Rust/Python use the generic scope-set walk; Go uses `resolve_go`.
+`resolve_nodes` is the load-bearing primitive: anchor + parsed tree → exact byte/line span.
+TypeScript/Rust/Python use the generic scope-set walk; Go uses `resolve_go`. Python
+`@overload` groups resolve and hash as one unit — stubs and implementation share a single
+token stream and span (#82).

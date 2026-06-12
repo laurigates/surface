@@ -14,6 +14,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and TypeScript, where `--all` still changes nothing (#79).
 
 ### Fixed
+- Python `@overload` sets are one anchorable unit: consecutive same-name stubs plus their
+  implementation resolve as a single logical symbol, so the bare name works without `@N` and
+  the hashed span covers stubs *and* impl — a signature change in any overload now trips the
+  gate, where previously only the implementation body was hashed and the typed contract could
+  drift silently. `suggest`'s proposed path for overloaded functions now lints clean instead
+  of failing its own resolver. Anchors that used the old `name@N` workaround to pick a stub or
+  the implementation should re-anchor to the bare name and re-`verify` (#82).
 - Python symbols bound inside module-level `if`/`try` blocks — `TYPE_CHECKING` guards,
   version gates, `try`/`except ImportError` fallbacks — now resolve by name like their
   unconditional siblings, and are enumerated by `suggest` and the lint coverage nudge. A name

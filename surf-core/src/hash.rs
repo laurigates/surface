@@ -17,7 +17,7 @@
 
 use crate::anchor::Anchor;
 use crate::lang::{Family, Lang};
-use crate::resolve::{hashable_node, parse_tree, resolve_node, ResolveError};
+use crate::resolve::{hashable_node, parse_tree, resolve_nodes, ResolveError};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -86,8 +86,24 @@ fn anchor_tokens(
     let tree = parse_tree(source, lang).ok_or(ResolveError::Parse)?;
     let src = source.as_bytes();
     let family = lang.family();
-    let node = resolve_node(tree.root_node(), src, family, anchor)?;
-    Ok(canonical_tokens(node, src, family, opts))
+    let nodes = resolve_nodes(tree.root_node(), src, family, anchor)?;
+    // A Python @overload group hashes as one token stream — stubs then impl in source order,
+    // sharing one alpha-rename map — so a signature change in *any* overload changes the
+    // hash (#82). The usual single-node case is unchanged.
+    let mut out = Vec::new();
+    let mut idents: HashMap<String, usize> = HashMap::new();
+    for node in nodes {
+        emit(
+            hashable_node(node, family),
+            src,
+            family,
+            opts,
+            false,
+            &mut idents,
+            &mut out,
+        );
+    }
+    Ok(out)
 }
 
 pub(crate) fn hash_node(node: Node, src: &[u8], family: Family, opts: HashOpts) -> String {

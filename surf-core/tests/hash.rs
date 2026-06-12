@@ -330,3 +330,75 @@ fn magnitude_does_not_affect_hash_equality() {
         Magnitude::Small
     );
 }
+
+// --- Python @overload groups hash as one unit (#82) -------------------------
+
+const OVERLOADED_PY: &str = r#"
+from typing import overload
+
+@overload
+def probe(x: int) -> int: ...
+@overload
+def probe(x: str) -> str: ...
+def probe(x):
+    return x
+"#;
+
+#[test]
+fn python_overload_stub_signature_change_changes_hash() {
+    // The gate hole from #82: the stubs *are* the public contract, so editing one must
+    // change the group hash even though the implementation body is untouched.
+    let stub_changed = r#"
+from typing import overload
+
+@overload
+def probe(x: int, base: int = 10) -> float: ...
+@overload
+def probe(x: str) -> str: ...
+def probe(x):
+    return x
+"#;
+    assert_ne!(
+        h(OVERLOADED_PY, Lang::Python, "f.py > probe"),
+        h(stub_changed, Lang::Python, "f.py > probe")
+    );
+}
+
+#[test]
+fn python_overload_group_quiet_on_reformat_and_comments() {
+    let reformatted = r#"
+from typing import overload
+
+@overload
+def probe(x: int) -> int: ...
+
+# the string overload
+@overload
+def probe(x: str) -> str: ...
+
+def probe(x):
+    return x  # identity
+"#;
+    assert_eq!(
+        h(OVERLOADED_PY, Lang::Python, "f.py > probe"),
+        h(reformatted, Lang::Python, "f.py > probe")
+    );
+}
+
+#[test]
+fn python_overload_impl_change_still_changes_hash() {
+    let impl_changed = r#"
+from typing import overload
+
+@overload
+def probe(x: int) -> int: ...
+@overload
+def probe(x: str) -> str: ...
+def probe(x):
+    return None
+"#;
+    assert_ne!(
+        h(OVERLOADED_PY, Lang::Python, "f.py > probe"),
+        h(impl_changed, Lang::Python, "f.py > probe")
+    );
+}

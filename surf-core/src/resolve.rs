@@ -47,8 +47,20 @@ impl std::error::Error for ResolveError {}
 pub fn resolve(source: &str, lang: Lang, anchor: &Anchor) -> Result<Span, ResolveError> {
     let tree = parse_tree(source, lang).ok_or(ResolveError::Parse)?;
     let family = lang.family();
-    let node = resolve_node(tree.root_node(), source.as_bytes(), family, anchor)?;
-    Ok(span_of(hashable_node(node, family)))
+    let nodes = resolve_nodes(tree.root_node(), source.as_bytes(), family, anchor)?;
+    // A logical symbol is usually one node; a Python @overload group (stubs + impl, #82)
+    // spans from the first stub to the implementation.
+    let first = span_of(hashable_node(nodes[0], family));
+    let last = span_of(hashable_node(
+        *nodes.last().expect("group is non-empty"),
+        family,
+    ));
+    Ok(Span {
+        start_byte: first.start_byte,
+        end_byte: last.end_byte,
+        start_line: first.start_line,
+        end_line: last.end_line,
+    })
 }
 
 /// The node whose span/tokens represent a resolved symbol. Resolution keys off the inner
@@ -74,16 +86,19 @@ pub(crate) fn parse_tree(source: &str, lang: Lang) -> Option<Tree> {
     parser.parse(source, None)
 }
 
-pub(crate) fn resolve_node<'a>(
+/// Resolve an anchor to one *logical symbol*: usually a single node, but a Python
+/// `@overload` group — consecutive same-name stubs plus their implementation — is one unit
+/// (#82), so the name resolves without `@N` and the hashed span covers every signature.
+pub(crate) fn resolve_nodes<'a>(
     root: Node<'a>,
     src: &[u8],
     family: Family,
     anchor: &Anchor,
-) -> Result<Node<'a>, ResolveError> {
+) -> Result<Vec<Node<'a>>, ResolveError> {
     // Go symbols are flat (no nested declarations) and methods attach to a type by receiver,
     // not by nesting — so it gets a dedicated resolver rather than the generic scope walk.
     if family == Family::Go {
-        return resolve_go(root, src, anchor);
+        return resolve_go(root, src, anchor).map(|n| vec![n]);
     }
 
     let mut scopes = vec![root];
@@ -94,10 +109,11 @@ pub(crate) fn resolve_node<'a>(
         for scope in &scopes {
             collect_matching(*scope, src, family, &seg.name, &mut matches);
         }
+        let logical = group_python_overloads(matches, src, family);
 
-        let selected: Vec<Node> = match seg.index {
-            Some(k) => matches.get(k - 1).copied().into_iter().collect(),
-            None => matches,
+        let selected: Vec<Vec<Node>> = match seg.index {
+            Some(k) => logical.get(k - 1).cloned().into_iter().collect(),
+            None => logical,
         };
 
         match selected.len() {
@@ -106,18 +122,82 @@ pub(crate) fn resolve_node<'a>(
                     segment: seg.name.clone(),
                 })
             }
-            1 if i == last => return Ok(selected[0]),
+            1 if i == last => return Ok(selected.into_iter().next().expect("len checked")),
             n if i == last => {
                 return Err(ResolveError::Ambiguous {
                     segment: seg.name.clone(),
                     count: n,
                 })
             }
-            _ => scopes = selected.iter().map(|n| scope_of(*n, family)).collect(),
+            // Descend through every member: a nested symbol may live in any of them
+            // (for an overload group, in practice the implementation's body).
+            _ => {
+                scopes = selected
+                    .iter()
+                    .flatten()
+                    .map(|n| scope_of(*n, family))
+                    .collect()
+            }
         }
     }
 
     unreachable!("an anchor always has at least one segment")
+}
+
+/// Partition name matches into logical symbols. Python only: a run of `@overload`-decorated
+/// defs extends into a group, and the first following non-overload same-name def (the
+/// implementation) closes it — so stubs + impl count as *one* match for ambiguity and `@N`
+/// (#82). Grouping requires the same enclosing scope; everything else stays a singleton.
+fn group_python_overloads<'a>(
+    matches: Vec<Node<'a>>,
+    src: &[u8],
+    family: Family,
+) -> Vec<Vec<Node<'a>>> {
+    if family != Family::Python {
+        return matches.into_iter().map(|m| vec![m]).collect();
+    }
+    let mut groups: Vec<Vec<Node>> = Vec::new();
+    for m in matches {
+        let extends = groups.last().and_then(|g| g.last()).is_some_and(|prev| {
+            m.kind() == "function_definition"
+                && is_overload_decorated(*prev, src)
+                && python_def_scope_id(*prev) == python_def_scope_id(m)
+        });
+        match groups.last_mut() {
+            Some(group) if extends => group.push(m),
+            _ => groups.push(vec![m]),
+        }
+    }
+    groups
+}
+
+/// True for a `def` carrying an `@overload` / `@typing.overload` decorator.
+fn is_overload_decorated(node: Node, src: &[u8]) -> bool {
+    if node.kind() != "function_definition" {
+        return false;
+    }
+    let Some(parent) = node.parent().filter(|p| p.kind() == "decorated_definition") else {
+        return false;
+    };
+    let mut cursor = parent.walk();
+    let found = parent.named_children(&mut cursor).any(|c| {
+        c.kind() == "decorator"
+            && c.utf8_text(src).is_ok_and(|t| {
+                let t = t.trim_start_matches('@').trim();
+                t == "overload" || t.ends_with(".overload")
+            })
+    });
+    found
+}
+
+/// The scope a def belongs to for grouping purposes, looking through the
+/// `decorated_definition` wrapper — stubs and impl must share it to merge.
+fn python_def_scope_id(node: Node) -> Option<usize> {
+    let mut p = node.parent()?;
+    if p.kind() == "decorated_definition" {
+        p = p.parent()?;
+    }
+    Some(p.id())
 }
 
 /// Apply a segment's positional/uniqueness rule to a candidate list.
