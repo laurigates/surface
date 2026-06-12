@@ -6,6 +6,67 @@ did about it, the lesson.* Keep it honest; the failures are the interesting part
 
 ---
 
+## 2026-06-12 — Instructions are advisory; the gate isn't (agent edition)
+
+**Context:** Asked Claude to knock out the 0.6.1 quick wins (`#71`, `#67`). It changed `surf for`'s
+error path in `for_path.rs`, ran `cargo test` (64 green), `cargo fmt --check`, even `sh -n` on the
+installer — and pushed.
+
+**What happened:** CI went red on the dogfood job:
+
+```
+DIVERGED  hubs/cli-for.md :: surf-cli/src/for_path.rs > run
+    stored 3ffb208cc1db → now 3143f824dcfb  (magnitude: Small)
+```
+
+AGENTS.md step 3 says, in so many words, *run `surf check` before you push*. The agent had that
+instruction in context and skipped it anyway — thorough about the checks it chose, blind to the
+one the repo asked for. The gate didn't care. It doesn't read AGENTS.md; it hashes spans.
+
+Second half: this is the **same anchor** as the PR 1 entry ("the gate caught its own author
+lying") — but the opposite branch. There the prose had gone false and needed rewriting. Here the
+claim describes the contract (a directory errors, exit 1 — the `#53` rewrite already said so),
+and the change only improved the *message text*, so the right move was a bare re-seal:
+`surf verify`, one anchor stamped, green. Both branches of the discrimination the tool forces
+have now been walked on the same claim, two days apart.
+
+**Why it's a good story:** the agent angle. Prose instructions to an agent are advisory — it
+followed five and dropped the sixth, which is exactly the failure mode prose always had. The
+deterministic gate was the only layer that didn't depend on being obeyed. If agents are going to
+write more of the code, "docs enforcement that doesn't rely on the author's diligence" stops
+being a nice-to-have.
+
+**Lesson / open question:** agent-proofing isn't more sentences in AGENTS.md — it's hooks. The
+pre-commit wiring exists (`CONTRIBUTING.md`); should installing it be the *first* thing an agent
+session does, or should `surf check` sit in a pre-push hook so the local gap can't happen at all?
+
+---
+
+## 2026-06-12 — The issue tracker is un-anchored prose: #43 rotted
+
+**Context:** Triaging 0.6.1 for quick wins. `#43` said: `pick()` in `surf-core/src/resolve.rs` is
+duplicated logic, never called, delete it. Filed with provenance and everything — file, line
+range.
+
+**What happened:** the code disagreed. The Go resolver (landed after the issue was filed) calls
+`pick()` twice. The issue's claim was true at filing and went false silently when `resolve_go`
+merged — nothing gates issue text, so it rotted exactly the way the thesis predicts un-anchored
+claims do. "Implementing" it would have broken the build. Closed as stale instead.
+
+**Why it's a good story:** an issue is a claim about code with provenance but no hash — the
+purest specimen yet of *what's anchored is enforced; what isn't, rots*. But there's an honest
+second edge: Surface couldn't have gated this one either. "This function is unused" is a
+whole-program property — it lives in the *callers*, not in the span you'd anchor. A hash on
+`pick()` itself would have sat green while the claim went false around it. Same blind-spot family
+as the `public_symbols` coupling in the 06-11 entry.
+
+**Lesson / open question:** for dead-code claims the right gate is the compiler
+(`#[warn(dead_code)]`, or deleting and letting the build vote), not a span hash. Pattern worth
+naming when writing this up: *match the claim to a gate that can actually see the property* —
+span-local truths get anchors, whole-program truths get the toolchain.
+
+---
+
 ## 2026-06-11 — What an anchor can reach, and what it can't
 
 **Context:** PR 3 of 0.6.0 (`#52`) — adding `surf suggest --all` to propose Python classes and
