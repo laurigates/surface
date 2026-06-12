@@ -34,10 +34,35 @@ pub fn changed_files(root: &Path, base: &str) -> Option<HashSet<String>> {
     })
 }
 
-/// Commit SHAs (newest first) in the optional `since`/`until` window, merges excluded so each
-/// SHA is one unit of work (`surf stats` treats a commit as a PR). `None` if git can't answer.
-pub fn log_commits(root: &Path, since: Option<&str>, until: Option<&str>) -> Option<Vec<String>> {
-    let mut args: Vec<String> = vec!["log".into(), "--no-merges".into(), "--format=%H".into()];
+/// One commit from the single-spawn history stream: its full SHA, its parents (first parent
+/// first, empty for a root commit), and the paths it changed versus its first parent as
+/// `--name-status` rows (`A`/`M`/`D`/`T`).
+pub struct CommitRec {
+    pub sha: String,
+    pub parents: Vec<String>,
+    pub changes: Vec<(char, String)>,
+}
+
+/// The whole history window in one spawn (#72): every reachable commit, newest first with
+/// children before parents (`--topo-order`), each carrying its parents and its first-parent
+/// name-status diff. Replaces the per-commit `diff-tree`/`rev-parse`/`ls-tree` triple whose
+/// process-creation cost made `surf stats` minutes-slow on large repos.
+///
+/// Merges are *included* — `--diff-merges=first-parent` (git ≥ 2.31) gives them the same
+/// first-parent diff as ordinary commits, so hub state can be propagated through them — and
+/// `--no-renames` keeps parity with the old plumbing `diff-tree` (a rename reads as delete+add).
+/// `None` if git can't answer.
+pub fn log_stream(root: &Path, since: Option<&str>, until: Option<&str>) -> Option<Vec<CommitRec>> {
+    let mut args: Vec<String> = vec![
+        "log".into(),
+        "--topo-order".into(),
+        "--diff-merges=first-parent".into(),
+        "--no-renames".into(),
+        "--name-status".into(),
+        // \x01 marks commit headers; it can't appear in a quoted git path, so the parser can
+        // split records without guessing whether a line is a path or a header.
+        "--format=%x01%H %P".into(),
+    ];
     if let Some(s) = since {
         args.push(format!("--since={s}"));
     }
@@ -49,44 +74,26 @@ pub fn log_commits(root: &Path, since: Option<&str>, until: Option<&str>) -> Opt
         .args(&args)
         .output()
         .ok()?;
-    output.status.success().then(|| {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()
-    })
-}
+    if !output.status.success() {
+        return None;
+    }
 
-/// Repo-root-relative paths changed by a single commit (vs its first parent). Empty for the root
-/// commit's tree-only diff is fine. `None` if git can't answer.
-pub fn commit_files(root: &Path, sha: &str) -> Option<Vec<String>> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(["diff-tree", "--no-commit-id", "--name-only", "-r", sha])
-        .output()
-        .ok()?;
-    output.status.success().then(|| {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()
-    })
-}
-
-/// Resolve a revision to its full commit SHA (e.g. `git rev-parse <sha>^` → the parent's SHA).
-/// Used to canonicalize a `before` rev so it shares a cache key with the parent commit's `after`
-/// state. `None` if the rev doesn't resolve (e.g. the root commit's nonexistent parent).
-pub fn rev_parse(root: &Path, rev: &str) -> Option<String> {
-    let output = Command::new("git")
-        .current_dir(root)
-        .args(["rev-parse", "--verify", "--quiet", rev])
-        .output()
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
+    let mut out: Vec<CommitRec> = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(header) = line.strip_prefix('\x01') {
+            let mut fields = header.split_whitespace();
+            let sha = fields.next()?.to_string();
+            out.push(CommitRec {
+                sha,
+                parents: fields.map(str::to_string).collect(),
+                changes: Vec::new(),
+            });
+        } else if let Some((status, path)) = line.split_once('\t') {
+            let status = status.chars().next()?;
+            out.last_mut()?.changes.push((status, path.to_string()));
+        }
+    }
+    Some(out)
 }
 
 /// Every tracked file at `sha` (repo-root-relative). Used to find the hub set as it existed at a

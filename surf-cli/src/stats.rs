@@ -92,71 +92,114 @@ fn compute(ws: &Workspace, since: Option<&str>, until: Option<&str>) -> Result<S
 
     // Unlike check's advisory git, stats *is* a history report: if git can't answer, fail loudly
     // rather than printing a misleading zero.
-    let commits = git::log_commits(&ws.root, since, until)
+    let stream = git::log_stream(&ws.root, since, until)
         .ok_or_else(|| anyhow!("git history unavailable (not a repo, or a shallow clone?)"))?;
 
-    let (mut rs_n, mut rs_d, mut ip_n, mut ip_d) = (0, 0, 0, 0);
+    // The whole window arrives in one spawn (#72); claim state is then propagated incrementally.
+    // A commit's claim set derives solely from its hub files, so it *is* its first parent's
+    // unless the commit touched a hub path — then only those hubs are re-read (`git show`), which
+    // costs ~hub-edits, not ~commits. Merges are in the stream purely as state carriers: their
+    // first-parent diff includes everything the other parents brought in, so applying it to the
+    // first parent's state reproduces the merge's tree exactly.
+    let is_hub = |path: &str| patterns.iter().any(|p| p.matches(path));
+    let mut state: HashMap<&str, Rc<HubState>> = HashMap::new();
+    // A first parent outside the stream (the edge of a --since window) is reconstructed once the
+    // slow way — full ls-tree + per-hub show — and memoized. Root commits have no parent at all.
+    let mut boundary: HashMap<String, Rc<HubState>> = HashMap::new();
+    let empty: Rc<HubState> = Rc::new(HashMap::new());
 
-    // Each commit needs the claim set at the commit (`after`) and at its parent (`before`); each
-    // `claims_at` spawns `git ls-tree` plus a `git show` per hub. Memoize by full commit SHA so a
-    // rev is walked at most once. On linear history `before(commit)` is `after(parent)`, so once
-    // the parent's SHA is canonicalized the two share a key and ~half the work is a cache hit;
-    // merges/gaps simply miss and populate the cache. `Rc` shares the cached set without a deep
-    // clone per hit.
-    let mut cache: HashMap<String, Rc<Vec<ClaimRec>>> = HashMap::new();
-    let mut claims_for = |sha: &str| -> Rc<Vec<ClaimRec>> {
-        if let Some(hit) = cache.get(sha) {
-            return Rc::clone(hit);
-        }
-        let computed = Rc::new(claims_at(&ws.root, sha, &patterns));
-        cache.insert(sha.to_string(), Rc::clone(&computed));
-        computed
-    };
+    // --topo-order lists children before parents, so walking the stream in reverse means every
+    // in-window first parent is resolved before its children ask for it.
+    for rec in stream.iter().rev() {
+        let parent_state =
+            match rec.parents.first() {
+                None => Rc::clone(&empty),
+                Some(p) => match state.get(p.as_str()) {
+                    Some(s) => Rc::clone(s),
+                    None => Rc::clone(boundary.entry(p.clone()).or_insert_with(|| {
+                        Rc::new(group_by_hub(claims_at(&ws.root, p, &patterns)))
+                    })),
+                },
+            };
 
-    for sha in &commits {
-        let changed: HashSet<String> = git::commit_files(&ws.root, sha)
-            .unwrap_or_default()
-            .into_iter()
+        let hub_changes: Vec<&(char, String)> = rec
+            .changes
+            .iter()
+            .filter(|(_, path)| is_hub(path))
             .collect();
-        if changed.is_empty() {
+        let next = if hub_changes.is_empty() {
+            parent_state
+        } else {
+            let mut next: HubState = (*parent_state).clone();
+            for (status, path) in hub_changes {
+                // Unreadable or unparsable hubs drop out of the set, exactly as claims_at skips
+                // them when listing a full tree.
+                let claims = (*status != 'D')
+                    .then(|| hub_claims(&ws.root, &rec.sha, path))
+                    .flatten();
+                match claims {
+                    Some(claims) => next.insert(path.clone(), Rc::new(claims)),
+                    None => next.remove(path.as_str()),
+                };
+            }
+            Rc::new(next)
+        };
+        state.insert(&rec.sha, next);
+    }
+
+    let (mut rs_n, mut rs_d, mut ip_n, mut ip_d) = (0, 0, 0, 0);
+    let mut commits = 0;
+
+    for rec in &stream {
+        // Merges are excluded from the metrics themselves: one non-merge commit = one PR.
+        if rec.parents.len() > 1 {
             continue;
         }
-
-        let after = claims_for(sha);
-        // Canonicalize `sha^` to the parent's SHA so `before` reuses the parent's cached `after`.
-        let before = match git::rev_parse(&ws.root, &format!("{sha}^")) {
-            Some(parent) => claims_for(&parent),
-            None => Rc::new(Vec::new()),
+        commits += 1;
+        // Root commits carry no `before` to compare against (the old per-commit diff-tree showed
+        // nothing for them), and empty commits have no events by definition.
+        let Some(parent) = rec.parents.first() else {
+            continue;
         };
-        let before_by_key: HashMap<(&str, &str), &ClaimRec> = before
-            .iter()
-            .map(|c| ((c.hub.as_str(), c.id.as_str()), c))
-            .collect();
+        if rec.changes.is_empty() {
+            continue;
+        }
+        let changed: HashSet<&str> = rec.changes.iter().map(|(_, p)| p.as_str()).collect();
 
-        for c in after.iter() {
-            let prev = before_by_key.get(&(c.hub.as_str(), c.id.as_str())).copied();
+        let after = &state[rec.sha.as_str()];
+        // The state pass resolved every first parent into `state` or `boundary` already.
+        let before = state
+            .get(parent.as_str())
+            .or_else(|| boundary.get(parent.as_str()))
+            .unwrap_or(&empty);
 
-            // Rubber-stamp: an already-sealed claim whose hash value changed this commit.
-            if let (Some(prev), Some(new_hash)) = (prev, &c.hash) {
-                if let Some(old_hash) = &prev.hash {
-                    if old_hash != new_hash {
-                        rs_d += 1;
-                        if prev.prose == c.prose {
-                            rs_n += 1;
+        for (hub, claims) in after.iter() {
+            let before_claims = before.get(hub);
+            for c in claims.iter() {
+                let prev = before_claims.and_then(|cs| cs.iter().find(|p| p.id == c.id));
+
+                // Rubber-stamp: an already-sealed claim whose hash value changed this commit.
+                if let (Some(prev), Some(new_hash)) = (prev, &c.hash) {
+                    if let Some(old_hash) = &prev.hash {
+                        if old_hash != new_hash {
+                            rs_d += 1;
+                            if prev.prose == c.prose {
+                                rs_n += 1;
+                            }
                         }
                     }
                 }
-            }
 
-            // In-place: a commit that touched an anchored file (seeded domain).
-            if c.files.iter().any(|f| changed.contains(f)) {
-                ip_d += 1;
-                let updated = match prev {
-                    Some(prev) => prev.hash != c.hash,
-                    None => c.hash.is_some(),
-                };
-                if updated {
-                    ip_n += 1;
+                // In-place: a commit that touched an anchored file (seeded domain).
+                if c.files.iter().any(|f| changed.contains(f.as_str())) {
+                    ip_d += 1;
+                    let updated = match prev {
+                        Some(prev) => prev.hash != c.hash,
+                        None => c.hash.is_some(),
+                    };
+                    if updated {
+                        ip_n += 1;
+                    }
                 }
             }
         }
@@ -166,13 +209,49 @@ fn compute(ws: &Workspace, since: Option<&str>, until: Option<&str>) -> Result<S
         version: REPORT_VERSION,
         since: since.map(str::to_string),
         until: until.map(str::to_string),
-        commits: commits.len(),
+        commits,
         rubber_stamp: Rate::new(rs_n, rs_d),
         in_place: Rate::new(ip_n, ip_d),
     })
 }
 
+/// Claim sets keyed by hub path — the unit the incremental walk replaces when a commit touches
+/// a hub. `Rc` lets unchanged hubs (the overwhelming majority) be shared across commit states.
+type HubState = HashMap<String, Rc<Vec<ClaimRec>>>;
+
+fn group_by_hub(claims: Vec<ClaimRec>) -> HubState {
+    let mut out: HashMap<String, Vec<ClaimRec>> = HashMap::new();
+    for c in claims {
+        out.entry(c.hub.clone()).or_default().push(c);
+    }
+    out.into_iter().map(|(k, v)| (k, Rc::new(v))).collect()
+}
+
+/// The claims of a single hub as it exists at `rev`, or `None` if it can't be read or parsed.
+fn hub_claims(root: &std::path::Path, rev: &str, hub: &str) -> Option<Vec<ClaimRec>> {
+    let content = git::show(root, rev, hub)?;
+    let parsed = parse_hub(&content).ok()?;
+    let mut out = Vec::new();
+    for claim in &parsed.frontmatter.anchors {
+        let sites = claim.at.sites();
+        let files = sites
+            .iter()
+            .filter_map(|s| parse_anchor(s).ok().map(|a| a.file))
+            .collect();
+        out.push(ClaimRec {
+            hub: hub.to_string(),
+            id: sites.join(" + "),
+            hash: claim.hash.clone(),
+            prose: claim.claim.trim().to_string(),
+            files,
+        });
+    }
+    Some(out)
+}
+
 /// Every claim across the hub set as it existed at `rev`, or empty if the rev/hubs don't exist.
+/// The slow path — one full `ls-tree` plus a `show` per hub — kept only for first parents that
+/// fall outside the streamed window (#72).
 fn claims_at(root: &std::path::Path, rev: &str, patterns: &[glob::Pattern]) -> Vec<ClaimRec> {
     let mut out = Vec::new();
     let files = git::list_files_at(root, rev).unwrap_or_default();
@@ -180,26 +259,7 @@ fn claims_at(root: &std::path::Path, rev: &str, patterns: &[glob::Pattern]) -> V
         .iter()
         .filter(|f| patterns.iter().any(|p| p.matches(f)))
     {
-        let Some(content) = git::show(root, rev, hub) else {
-            continue;
-        };
-        let Ok(parsed) = parse_hub(&content) else {
-            continue;
-        };
-        for claim in &parsed.frontmatter.anchors {
-            let sites = claim.at.sites();
-            let files = sites
-                .iter()
-                .filter_map(|s| parse_anchor(s).ok().map(|a| a.file))
-                .collect();
-            out.push(ClaimRec {
-                hub: hub.clone(),
-                id: sites.join(" + "),
-                hash: claim.hash.clone(),
-                prose: claim.claim.trim().to_string(),
-                files,
-            });
-        }
+        out.extend(hub_claims(root, rev, hub).unwrap_or_default());
     }
     out
 }
@@ -264,6 +324,19 @@ mod tests {
     fn commit(root: &Path, msg: &str) {
         git(root, &["add", "."]);
         git(root, &["commit", "-q", "-m", msg]);
+    }
+
+    fn commit_at(root: &Path, msg: &str, date: &str) {
+        git(root, &["add", "."]);
+        let status = Command::new("git")
+            .current_dir(root)
+            .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .args(["commit", "-q", "-m", msg])
+            .status()
+            .unwrap();
+        assert!(status.success(), "git commit at {date} failed");
     }
 
     fn ws(root: &Path) -> Workspace {
@@ -423,6 +496,133 @@ mod tests {
         assert_eq!((r.in_place.n, r.in_place.d), (0, 1));
         // No hash value change happened, so no rubber-stamp event either.
         assert_eq!(r.rubber_stamp.d, 0);
+    }
+
+    #[test]
+    fn merge_commits_carry_state_but_do_not_count() {
+        // A re-stamp lands on a feature branch; main moves independently; the branch is merged
+        // with --no-ff. The merge must propagate the branch's hub state (its first-parent diff
+        // carries it) without itself counting as a commit or an event, and a post-merge re-stamp
+        // must see the merged state as its `before`.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        write(root, "surf.toml", "");
+
+        let anchor = "src/m.rs > add";
+        let v1 = "pub fn add(a: i64) -> i64 { a + 1 }\n";
+        write(root, "src/m.rs", v1);
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v1, anchor)),
+        );
+        commit(root, "seed");
+
+        git(root, &["checkout", "-q", "-b", "feature"]);
+        let v2 = "pub fn add(a: i64) -> i64 { a + 2 }\n";
+        write(root, "src/m.rs", v2);
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v2, anchor)),
+        );
+        commit(root, "branch re-stamp");
+
+        git(root, &["checkout", "-q", "main"]);
+        write(root, "other.txt", "unrelated\n");
+        commit(root, "unrelated main work");
+
+        git(
+            root,
+            &["merge", "-q", "--no-ff", "-m", "merge feature", "feature"],
+        );
+
+        let v3 = "pub fn add(a: i64) -> i64 { a + 3 }\n";
+        write(root, "src/m.rs", v3);
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v3, anchor)),
+        );
+        commit(root, "post-merge re-stamp");
+
+        let r = compute(&ws(root), None, None).unwrap();
+        // seed + branch + unrelated + post-merge; the merge itself is excluded.
+        assert_eq!(r.commits, 4);
+        // Both re-stamps count — the post-merge one only if the merge carried the v2 state.
+        assert_eq!((r.rubber_stamp.n, r.rubber_stamp.d), (2, 2));
+        assert_eq!((r.in_place.n, r.in_place.d), (2, 2));
+    }
+
+    #[test]
+    fn since_window_reconstructs_the_out_of_window_parent() {
+        // The seed predates the --since window, so the in-window re-stamp's first parent is not
+        // in the stream. Its state must be reconstructed (the slow ls-tree fallback) rather than
+        // treated as empty — otherwise the re-stamp would read as a brand-new claim and the
+        // rubber-stamp event would be lost.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        write(root, "surf.toml", "");
+
+        let anchor = "src/m.rs > add";
+        let v1 = "pub fn add(a: i64) -> i64 { a + 1 }\n";
+        write(root, "src/m.rs", v1);
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v1, anchor)),
+        );
+        commit_at(root, "seed", "2020-01-01T12:00:00 +0000");
+
+        let v2 = "pub fn add(a: i64) -> i64 { a + 2 }\n";
+        write(root, "src/m.rs", v2);
+        write(
+            root,
+            "hubs/a.md",
+            &hub("add increments", anchor, &rust_hash(v2, anchor)),
+        );
+        commit_at(root, "re-stamp", "2026-01-01T12:00:00 +0000");
+
+        let r = compute(&ws(root), Some("2023-01-01"), None).unwrap();
+        assert_eq!(r.commits, 1);
+        assert_eq!((r.rubber_stamp.n, r.rubber_stamp.d), (1, 1));
+        assert_eq!((r.in_place.n, r.in_place.d), (1, 1));
+    }
+
+    #[test]
+    fn deleted_hub_drops_its_claims_from_later_state() {
+        // After the hub is deleted, touching the formerly-anchored file must produce no events —
+        // a stale incremental state that kept the dead hub's claims would inflate the in-place
+        // denominator.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        write(root, "surf.toml", "");
+
+        let v1 = "pub fn add(a: i64) -> i64 { a + 1 }\n";
+        write(root, "src/m.rs", v1);
+        write(
+            root,
+            "hubs/a.md",
+            &hub(
+                "add increments",
+                "src/m.rs > add",
+                &rust_hash(v1, "src/m.rs > add"),
+            ),
+        );
+        commit(root, "seed");
+
+        fs::remove_file(root.join("hubs/a.md")).unwrap();
+        commit(root, "drop hub");
+
+        write(root, "src/m.rs", "pub fn add(a: i64) -> i64 { a + 9 }\n");
+        commit(root, "bump unanchored");
+
+        let r = compute(&ws(root), None, None).unwrap();
+        assert_eq!(r.commits, 3);
+        assert_eq!((r.rubber_stamp.d, r.in_place.d), (0, 0));
     }
 
     #[test]
