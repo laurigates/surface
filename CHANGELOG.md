@@ -7,6 +7,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `surf check --files` now warns on stderr when a glob matched no anchored files, and exits
+  non-zero when *every* glob matched nothing — a typo'd pattern no longer scopes the gate to
+  nothing and reports a clean run, mirroring `suggest`'s existing zero-match behavior (#78).
+- `surf lint` coverage warnings (and `check`'s malformed-hub divergences) no longer print a
+  dangling empty `claim:` line when there is no claim to show (#83).
+- The release workflow now polls the npm registry after publishing and fails the run if any
+  package version never becomes fetchable, instead of trusting `npm publish`'s exit code —
+  the registry has silently dropped freshly published versions post-publish (#80).
+
+### Changed
+- `surf suggest --all` prints a note when the scan includes non-Python files: `--all`
+  currently only proposes non-callable symbols for Python, so its silence on Go/Rust/TS is
+  no longer mistakable for "this file has no non-callables" (#79).
+
 ## [0.6.1] - 2026-06-12
 
 ### Changed
