@@ -7,6 +7,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `surf stats` now reads the whole history window from a single streamed
+  `git log --name-status` instead of spawning a `diff-tree`/`rev-parse`/`ls-tree` triple per
+  commit. Hub claim state is propagated incrementally — a hub is re-read (`git show`) only at
+  commits that touched it — so the git-spawn count scales with hub edits rather than history
+  length. On a 13k-commit repo this is the difference between minutes and seconds; metrics are
+  byte-identical to the previous implementation. Requires git ≥ 2.31 for
+  `--diff-merges=first-parent` (#72).
+
 ## [0.6.0] - 2026-06-11
 
 ### Added
