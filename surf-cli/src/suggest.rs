@@ -31,6 +31,9 @@ struct GlobReport {
 struct ScanResult {
     suggestions: Vec<Suggestion>,
     globs: Vec<GlobReport>,
+    /// Supported files scanned that aren't Python — where `--all` currently changes
+    /// nothing, so its silence needs explaining (#79).
+    non_python_scanned: usize,
 }
 
 pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Result<ExitCode> {
@@ -47,6 +50,11 @@ pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Resul
         Format::Human => print_human(&result.suggestions),
     }
     // Warnings go to stderr so JSON stdout stays machine-parseable.
+    if all && result.non_python_scanned > 0 {
+        eprintln!(
+            "surf suggest: note: --all currently only proposes non-callable symbols for Python files; other languages list callables only."
+        );
+    }
     for g in &result.globs {
         if g.files_matched == 0 {
             eprintln!("surf suggest: glob \"{}\" matched no files.", g.pattern);
@@ -96,6 +104,7 @@ fn scan(
 ) -> Result<ScanResult> {
     let mut out = Vec::new();
     let mut reports = Vec::new();
+    let mut non_python_scanned = 0;
     for pattern in globs {
         let joined = ws.root.join(pattern);
         let glob_str = joined
@@ -121,6 +130,9 @@ fn scan(
                 continue;
             };
             supported_matched += 1;
+            if lang != Lang::Python {
+                non_python_scanned += 1;
+            }
             for segments in public_symbols(&source, lang, surface) {
                 let at = format!("{rel} > {}", segments.join(" > "));
                 if covered.contains(&at) {
@@ -145,6 +157,7 @@ fn scan(
     Ok(ScanResult {
         suggestions: out,
         globs: reports,
+        non_python_scanned,
     })
 }
 
@@ -305,6 +318,22 @@ mod tests {
         // `fetch` is anchored; only `send` should remain.
         assert_eq!(s.len(), 1);
         assert_eq!(s[0].at, "src/api.py > Client > send");
+    }
+
+    #[test]
+    fn non_python_files_are_tallied_for_the_all_note() {
+        // `--all` only affects Python today; scanning Go/Rust must be visible so the
+        // flag isn't a silent no-op there (#79).
+        let (_t, ws) = ws_with(&[
+            ("src/m.rs", "pub fn a() {}\n"),
+            ("src/api.py", "def fetch():\n    pass\n"),
+        ]);
+        let covered = covered_anchors(&ws).unwrap();
+        let r = scan(&ws, &["src/*".to_string()], &covered, Surface::All).unwrap();
+        assert_eq!(r.non_python_scanned, 1);
+
+        let py_only = scan(&ws, &["src/*.py".to_string()], &covered, Surface::All).unwrap();
+        assert_eq!(py_only.non_python_scanned, 0);
     }
 
     #[test]
