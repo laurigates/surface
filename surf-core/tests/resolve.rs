@@ -237,3 +237,74 @@ fn span_lines_are_one_based() {
     let s = span(RS, Lang::Rust, "auth.rs > TokenService > validate");
     assert!(s.start_line >= 1 && s.end_line >= s.start_line);
 }
+
+// --- Python module-level if/try blocks (#81) --------------------------------
+
+const GUARDED_PY: &str = r#"
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections import OrderedDict
+    GuardedAlias = OrderedDict
+
+if sys.version_info >= (3, 10):
+    def gated() -> bool:
+        return True
+elif sys.version_info >= (3, 9):
+    def gated() -> bool:
+        return False
+else:
+    LEGACY = 1
+
+try:
+    from fast_json import loads
+
+    def parse(data):
+        return loads(data)
+except ImportError:
+    def parse(data):
+        return None
+finally:
+    CLEANUP = 1
+"#;
+
+#[test]
+fn python_type_checking_guarded_alias_resolves() {
+    let s = span(GUARDED_PY, Lang::Python, "auth.py > GuardedAlias");
+    assert!(snippet(GUARDED_PY, s).contains("OrderedDict"));
+}
+
+#[test]
+fn python_version_gated_def_is_ambiguous_then_positional() {
+    // The same name bound in the if and elif branches: two matches, @N picks one.
+    match err(GUARDED_PY, Lang::Python, "auth.py > gated") {
+        ResolveError::Ambiguous { count, .. } => assert_eq!(count, 2),
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+    let first = span(GUARDED_PY, Lang::Python, "auth.py > gated @1");
+    assert!(snippet(GUARDED_PY, first).contains("return True"));
+    let second = span(GUARDED_PY, Lang::Python, "auth.py > gated @2");
+    assert!(snippet(GUARDED_PY, second).contains("return False"));
+}
+
+#[test]
+fn python_else_and_finally_bindings_resolve() {
+    let legacy = span(GUARDED_PY, Lang::Python, "auth.py > LEGACY");
+    assert!(snippet(GUARDED_PY, legacy).contains("LEGACY = 1"));
+    let cleanup = span(GUARDED_PY, Lang::Python, "auth.py > CLEANUP");
+    assert!(snippet(GUARDED_PY, cleanup).contains("CLEANUP = 1"));
+}
+
+#[test]
+fn python_import_fallback_branches_resolve_positionally() {
+    // try/except ImportError fallback: both `parse` defs are reachable; @N disambiguates.
+    match err(GUARDED_PY, Lang::Python, "auth.py > parse") {
+        ResolveError::Ambiguous { count, .. } => assert_eq!(count, 2),
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+    let fast = span(GUARDED_PY, Lang::Python, "auth.py > parse @1");
+    assert!(snippet(GUARDED_PY, fast).contains("loads(data)"));
+    let fallback = span(GUARDED_PY, Lang::Python, "auth.py > parse @2");
+    assert!(snippet(GUARDED_PY, fallback).contains("return None"));
+}

@@ -291,17 +291,18 @@ pub enum Surface {
     /// default.
     Callables,
     /// Everything anchorable: additionally top-level classes, module-level constants and type
-    /// aliases, and class attributes (Python). Drives `suggest --all`, so a user can *discover*
-    /// the non-callable targets `resolve` already accepts. Other languages enumerate the same
-    /// callables as `Callables` for now.
+    /// aliases, and class attributes (Python), and top-level `const`/`var`/`type` declarations
+    /// (Go). Drives `suggest --all`, so a user can *discover* the non-callable targets `resolve`
+    /// already accepts. Rust and TypeScript enumerate the same callables as `Callables` for now.
     All,
 }
 
 /// Public symbols on a file's surface as resolvable anchor segment paths: top-level functions
 /// (`["foo"]`), and — unlike [`public_fns`] — the methods that make up most of a Python/Go API
-/// (`["Builder", "Set"]`). With [`Surface::All`] it also proposes the non-callable Python targets
-/// `resolve` accepts: top-level classes (`["C"]`), module-level constants/type aliases
-/// (`["CONST"]`), and class attributes (`["C", "attr"]`). With [`Surface::Callables`] those are
+/// (`["Builder", "Set"]`). With [`Surface::All`] it also proposes the non-callable targets
+/// `resolve` accepts: for Python, top-level classes (`["C"]`), module-level constants/type
+/// aliases (`["CONST"]`), and class attributes (`["C", "attr"]`); for Go, exported top-level
+/// `const`/`var`/`type` declarations (`["MatchType"]`). With [`Surface::Callables`] those are
 /// withheld, keeping the default (and the lint nudge) to behaviour. Methods on Rust `impl` blocks
 /// and TS classes remain out of scope; only top-level fns are enumerated for them.
 pub fn public_symbols(source: &str, lang: Lang, surface: Surface) -> Vec<Vec<String>> {
@@ -368,6 +369,22 @@ fn collect_public_symbol(
                     }
                 }
             }
+            // Exported non-callable declarations (const/var/type, grouped or not): anchorable
+            // and gateable, but withheld unless `--all` so the default suggestion stays
+            // behaviour-focused — same policy as Python's non-callables (#79). Only the first
+            // name of a multi-name spec is emitted, matching what `go_def_name` resolves.
+            "const_declaration" | "var_declaration" | "type_declaration"
+                if surface == Surface::All =>
+            {
+                let mut cursor = node.walk();
+                for spec in node.named_children(&mut cursor) {
+                    if let Some(name) = go_def_name(spec, src) {
+                        if name.chars().next().is_some_and(char::is_uppercase) {
+                            out.push(vec![name]);
+                        }
+                    }
+                }
+            }
             _ => {}
         },
     }
@@ -426,7 +443,19 @@ fn collect_python_symbol(
         }
         // tree-sitter wraps module/class-body statements (assignments) in `expression_statement`;
         // a decorator wraps the def. Both are transparent — recurse, preserving class + surface.
-        "decorated_definition" | "expression_statement" => {
+        // Module-level `if`/`try` blocks are transparent the same way the resolver treats them
+        // (#81), so version-gated defs and guarded aliases are part of the enumerated surface.
+        // `block` is only reachable here through those statements — function bodies are never
+        // entered (the `function_definition` arm doesn't recurse).
+        "decorated_definition"
+        | "expression_statement"
+        | "if_statement"
+        | "elif_clause"
+        | "else_clause"
+        | "try_statement"
+        | "except_clause"
+        | "finally_clause"
+        | "block" => {
             let mut cursor = node.walk();
             for c in node.named_children(&mut cursor) {
                 collect_python_symbol(c, src, class, surface, out);
@@ -616,9 +645,22 @@ fn is_transparent(kind: &str, family: Family) -> bool {
                 | "lexical_declaration"
                 | "variable_declaration"
         ),
+        // Module-level `if`/`try` blocks (TYPE_CHECKING guards, version gates,
+        // `except ImportError` fallbacks) bind symbols just like their unconditional
+        // siblings, so the walk descends through them (#81). A name bound in multiple
+        // branches yields multiple matches, handled by the existing `@N` mechanism.
         Family::Python => matches!(
             kind,
-            "module" | "block" | "decorated_definition" | "expression_statement"
+            "module"
+                | "block"
+                | "decorated_definition"
+                | "expression_statement"
+                | "if_statement"
+                | "elif_clause"
+                | "else_clause"
+                | "try_statement"
+                | "except_clause"
+                | "finally_clause"
         ),
         Family::Go => matches!(
             kind,
@@ -789,18 +831,76 @@ class TopLevelClass:
     }
 
     #[test]
-    fn all_is_callables_only_for_non_python() {
-        // The non-callable extension is Python-scoped for now; --all must not change Rust/Go/TS
+    fn all_is_callables_only_for_rust_and_ts() {
+        // The non-callable extension covers Python and Go; --all must not change Rust/TS
         // output, so a Rust repo's lint nudge and suggest stay identical across modes.
         let rust = "pub fn a() {}\npub struct S;\npub const K: u8 = 1;\n";
         assert_eq!(
             public_symbols(rust, Lang::Rust, Surface::All),
             public_symbols(rust, Lang::Rust, Surface::Callables)
         );
-        let go = "package p\nfunc Top() {}\ntype Builder struct{}\nconst K = 1\n";
+        let ts = "export function a() {}\nexport const K = 1;\nexport interface I {}\n";
+        assert_eq!(
+            public_symbols(ts, Lang::TypeScript, Surface::All),
+            public_symbols(ts, Lang::TypeScript, Surface::Callables)
+        );
+    }
+
+    #[test]
+    fn go_all_includes_exported_non_callables() {
+        // Exported const/var/type declarations (grouped or single) join the surface under
+        // --all; unexported names and the callables-only default are unchanged (#79).
+        let go = "package p\n\ntype MatchType int\n\nconst (\n\tMatchEqual MatchType = iota\n\tinternalConst\n)\n\nvar Default = MatchType(0)\nvar hidden = 1\n\ntype matcher struct{}\n\ntype Matcher struct{ Name string }\n\nfunc New() *Matcher { return nil }\n";
+        assert_eq!(
+            public_symbols(go, Lang::Go, Surface::Callables),
+            vec![vec!["New".to_string()]]
+        );
         assert_eq!(
             public_symbols(go, Lang::Go, Surface::All),
-            public_symbols(go, Lang::Go, Surface::Callables)
+            vec![
+                vec!["Default".to_string()],
+                vec!["MatchEqual".to_string()],
+                vec!["MatchType".to_string()],
+                vec!["Matcher".to_string()],
+                vec!["New".to_string()],
+            ]
         );
+    }
+
+    #[test]
+    fn python_module_level_if_try_symbols_are_enumerated() {
+        // Defs and bindings inside module-level `if`/`try` blocks are part of the public
+        // surface (#81); the same name bound in two branches dedupes to one path.
+        let src = "\
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    GuardedAlias = int
+
+if sys.version_info >= (3, 10):
+    def gated():
+        pass
+else:
+    def gated():
+        pass
+
+try:
+    def parse():
+        pass
+except ImportError:
+    def fallback():
+        pass
+";
+        assert_eq!(
+            public_symbols(src, Lang::Python, Surface::Callables),
+            vec![
+                vec!["fallback".to_string()],
+                vec!["gated".to_string()],
+                vec!["parse".to_string()],
+            ]
+        );
+        assert!(public_symbols(src, Lang::Python, Surface::All)
+            .contains(&vec!["GuardedAlias".to_string()]));
     }
 }

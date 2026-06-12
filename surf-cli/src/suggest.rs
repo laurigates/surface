@@ -1,8 +1,9 @@
 //! `surf suggest <globs>` — propose anchors for public symbols no hub covers yet (§8, #18).
 //! Scans the given source files, lists each public function and method that isn't already
 //! anchored, and prints a copy-pasteable starter hub. With `--all` it also proposes the
-//! non-callable targets `resolve` accepts (classes, constants, type aliases, class attributes),
-//! so they're discoverable. Suggestions only: it never writes a file and never stamps a hash —
+//! non-callable targets `resolve` accepts (Python classes, constants, type aliases, and class
+//! attributes; Go const/var/type declarations), so they're discoverable. Suggestions only: it
+//! never writes a file and never stamps a hash —
 //! the author edits the claims and runs `surf verify`. A glob that matches no files is reported
 //! (and fails when every glob is empty) so typos don't look clean.
 
@@ -31,9 +32,9 @@ struct GlobReport {
 struct ScanResult {
     suggestions: Vec<Suggestion>,
     globs: Vec<GlobReport>,
-    /// Supported files scanned that aren't Python — where `--all` currently changes
-    /// nothing, so its silence needs explaining (#79).
-    non_python_scanned: usize,
+    /// Supported files scanned in a language where `--all` currently changes nothing
+    /// (Rust/TypeScript), so its silence there needs explaining (#79).
+    all_noop_scanned: usize,
 }
 
 pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Result<ExitCode> {
@@ -50,9 +51,9 @@ pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Resul
         Format::Human => print_human(&result.suggestions),
     }
     // Warnings go to stderr so JSON stdout stays machine-parseable.
-    if all && result.non_python_scanned > 0 {
+    if all && result.all_noop_scanned > 0 {
         eprintln!(
-            "surf suggest: note: --all currently only proposes non-callable symbols for Python files; other languages list callables only."
+            "surf suggest: note: --all currently only proposes non-callable symbols for Python and Go files; Rust and TypeScript list callables only."
         );
     }
     for g in &result.globs {
@@ -104,7 +105,7 @@ fn scan(
 ) -> Result<ScanResult> {
     let mut out = Vec::new();
     let mut reports = Vec::new();
-    let mut non_python_scanned = 0;
+    let mut all_noop_scanned = 0;
     for pattern in globs {
         let joined = ws.root.join(pattern);
         let glob_str = joined
@@ -130,8 +131,8 @@ fn scan(
                 continue;
             };
             supported_matched += 1;
-            if lang != Lang::Python {
-                non_python_scanned += 1;
+            if !matches!(lang, Lang::Python | Lang::Go) {
+                all_noop_scanned += 1;
             }
             for segments in public_symbols(&source, lang, surface) {
                 let at = format!("{rel} > {}", segments.join(" > "));
@@ -157,7 +158,7 @@ fn scan(
     Ok(ScanResult {
         suggestions: out,
         globs: reports,
-        non_python_scanned,
+        all_noop_scanned,
     })
 }
 
@@ -321,19 +322,57 @@ mod tests {
     }
 
     #[test]
-    fn non_python_files_are_tallied_for_the_all_note() {
-        // `--all` only affects Python today; scanning Go/Rust must be visible so the
-        // flag isn't a silent no-op there (#79).
+    fn all_noop_languages_are_tallied_for_the_note() {
+        // `--all` only affects Python and Go today; scanning Rust/TS must be visible so
+        // the flag isn't a silent no-op there (#79).
         let (_t, ws) = ws_with(&[
             ("src/m.rs", "pub fn a() {}\n"),
             ("src/api.py", "def fetch():\n    pass\n"),
+            ("src/api.go", "package api\n\nfunc Fetch() {}\n"),
         ]);
         let covered = covered_anchors(&ws).unwrap();
         let r = scan(&ws, &["src/*".to_string()], &covered, Surface::All).unwrap();
-        assert_eq!(r.non_python_scanned, 1);
+        assert_eq!(r.all_noop_scanned, 1); // only the Rust file
 
-        let py_only = scan(&ws, &["src/*.py".to_string()], &covered, Surface::All).unwrap();
-        assert_eq!(py_only.non_python_scanned, 0);
+        let py_go = scan(
+            &ws,
+            &["src/*.py".to_string(), "src/*.go".to_string()],
+            &covered,
+            Surface::All,
+        )
+        .unwrap();
+        assert_eq!(py_go.all_noop_scanned, 0);
+    }
+
+    #[test]
+    fn all_flag_proposes_go_non_callables() {
+        // The Go edition of #52: consts, type decls, and structs resolve and gate but were
+        // never proposed — --all must surface them (#79). Default stays callables-only.
+        let (_t, ws) = ws_with(&[(
+            "src/m.go",
+            "package m\n\ntype MatchType int\n\nconst (\n\tMatchEqual MatchType = iota\n\tmatchHidden\n)\n\nvar DefaultMatcher = MatchType(0)\n\ntype Matcher struct {\n\tName string\n}\n\nfunc NewMatcher() *Matcher { return nil }\n",
+        )]);
+        let covered = covered_anchors(&ws).unwrap();
+        let default = scan(&ws, &["src/*.go".to_string()], &covered, Surface::Callables)
+            .unwrap()
+            .suggestions;
+        let default_ats: Vec<&str> = default.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(default_ats, vec!["src/m.go > NewMatcher"]);
+
+        let all = scan(&ws, &["src/*.go".to_string()], &covered, Surface::All)
+            .unwrap()
+            .suggestions;
+        let all_ats: Vec<&str> = all.iter().map(|x| x.at.as_str()).collect();
+        assert_eq!(
+            all_ats,
+            vec![
+                "src/m.go > DefaultMatcher",
+                "src/m.go > MatchEqual",
+                "src/m.go > MatchType",
+                "src/m.go > Matcher",
+                "src/m.go > NewMatcher",
+            ]
+        );
     }
 
     #[test]
