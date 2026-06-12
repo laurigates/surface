@@ -26,7 +26,10 @@ case "$os" in
   Linux)
     case "$arch" in
       x86_64) target="x86_64-unknown-linux-gnu" ;;
-      aarch64 | arm64) target="aarch64-unknown-linux-gnu" ;;
+      aarch64 | arm64)
+        echo "surf: no prebuilt binary for ARM64 Linux yet. Install from source instead:" >&2
+        echo "  cargo install --git https://github.com/Connorrmcd6/surface surf-cli" >&2
+        exit 1 ;;
       *) echo "surf: unsupported Linux arch: $arch" >&2; exit 1 ;;
     esac ;;
   *) echo "surf: unsupported OS: $os" >&2; exit 1 ;;
