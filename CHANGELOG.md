@@ -7,7 +7,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `surf suggest --all` now proposes Go exported top-level `const`, `var`, and `type`
+  declarations (including structs), matching what the resolver already accepted — the Go
+  edition of #52's Python fix. The "Python-only" note added for #79 now fires only for Rust
+  and TypeScript, where `--all` still changes nothing (#79).
+
 ### Fixed
+- Python symbols bound inside module-level `if`/`try` blocks — `TYPE_CHECKING` guards,
+  version gates, `try`/`except ImportError` fallbacks — now resolve by name like their
+  unconditional siblings, and are enumerated by `suggest` and the lint coverage nudge. A name
+  bound in multiple branches is reported ambiguous and disambiguated with the existing `@N`
+  mechanism (#81).
 - `surf check --files` now warns on stderr when a glob matched no anchored files, and exits
   non-zero when *every* glob matched nothing — a typo'd pattern no longer scopes the gate to
   nothing and reports a clean run, mirroring `suggest`'s existing zero-match behavior (#78).

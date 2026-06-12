@@ -5,13 +5,14 @@ anchors:
       surf suggest is read-only: run scans the given globs, lists each public symbol no hub
       already anchors, and prints them (a starter hub in human mode, or JSON). By default the
       surface is callables (top-level functions plus Python/Go methods); --all additionally
-      proposes the non-callable targets resolve accepts — top-level classes, module-level
-      constants and type aliases, and class attributes (Python). It warns on stderr for any glob
-      that matched no files, notes when --all scanned non-Python files it cannot affect, and
-      exits non-zero only when every glob was empty. It never writes a
-      file and never computes or stamps a hash — the author edits the claims and verifies.
+      proposes the non-callable targets resolve accepts — Python top-level classes, module-level
+      constants and type aliases, and class attributes; Go exported const/var/type declarations.
+      It warns on stderr for any glob that matched no files, notes when --all scanned Rust or
+      TypeScript files it cannot affect, and exits non-zero only when every glob was empty. It
+      never writes a file and never computes or stamps a hash — the author edits the claims and
+      verifies.
     at: surf-cli/src/suggest.rs > run
-    hash: 13c5db37cd21
+    hash: 9f598cd3a7b9
 refs: []
 ---
 
