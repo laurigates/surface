@@ -19,7 +19,7 @@ if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shim = "surface";
-const platformDirs = ["surface-darwin-arm64", "surface-linux-x64"];
+const platformDirs = ["surface-darwin-arm64", "surface-linux-x64", "surface-linux-arm64"];
 
 function patch(dir, fn) {
   const file = join(here, dir, "package.json");

@@ -15,6 +15,7 @@ const { spawnSync } = require("child_process");
 const PACKAGE_BY_PLATFORM = {
   "darwin-arm64": "@gradient-tools/surface-darwin-arm64",
   "linux-x64": "@gradient-tools/surface-linux-x64",
+  "linux-arm64": "@gradient-tools/surface-linux-arm64",
 };
 
 function resolveBinary() {

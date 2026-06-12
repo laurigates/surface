@@ -11,6 +11,7 @@ inside the platform package, and npm installs only the one matching the host.
 | `@gradient-tools/surface` (`surface/`) | Thin shim. Its `bin/surf.js` launcher resolves the platform package's binary at runtime and execs it. Lists the platform packages as `optionalDependencies`. |
 | `@gradient-tools/surface-darwin-arm64` | The `surf` binary for macOS (Apple Silicon). `os`/`cpu` pin it so npm installs it only on a match. |
 | `@gradient-tools/surface-linux-x64` | The `surf` binary for Linux (x86_64). |
+| `@gradient-tools/surface-linux-arm64` | The `surf` binary for Linux (ARM64). |
 
 When a user runs `npm install @gradient-tools/surface`, npm pulls the shim and—via the `os`/`cpu`
 gates on the optional deps—exactly one platform package. The other platform packages are skipped
