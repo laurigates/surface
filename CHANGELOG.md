@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-12
+
 ### Changed
 - `surf stats` now reads the whole history window from a single streamed
   `git log --name-status` instead of spawning a `diff-tree`/`rev-parse`/`ls-tree` triple per
@@ -15,6 +17,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   length. On a 13k-commit repo this is the difference between minutes and seconds; metrics are
   byte-identical to the previous implementation. Requires git ≥ 2.31 for
   `--diff-merges=first-parent` (#72).
+
+### Fixed
+- ARM64 Linux is now a first-class install target. Releases publish an
+  `aarch64-unknown-linux-gnu` binary, and both `install.sh` and the npm channel
+  (`@gradient-tools/surface`) resolve it for the host. Previously ARM64 Linux fell through to a
+  missing asset; the installer now succeeds there rather than failing on a 404 (#67).
+- `surf for` distinguishes a path that is a directory from one that does not exist, instead of
+  reporting both the same way — the error now points at the actual problem (#71).
 
 ## [0.6.0] - 2026-06-11
 
