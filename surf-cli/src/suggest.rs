@@ -2,7 +2,8 @@
 //! Scans the given source files, lists each public function and method that isn't already
 //! anchored, and prints a copy-pasteable starter hub. With `--all` it also proposes the
 //! non-callable targets `resolve` accepts (Python classes, constants, type aliases, and class
-//! attributes; Go const/var/type declarations), so they're discoverable. Suggestions only: it
+//! attributes; Go const/var/type declarations; TypeScript classes and non-callable const/let/var),
+//! so they're discoverable. Suggestions only: it
 //! never writes a file and never stamps a hash —
 //! the author edits the claims and runs `surf verify`. A glob that matches no files is reported
 //! (and fails when every glob is empty) so typos don't look clean.
@@ -33,7 +34,7 @@ struct ScanResult {
     suggestions: Vec<Suggestion>,
     globs: Vec<GlobReport>,
     /// Supported files scanned in a language where `--all` currently changes nothing
-    /// (Rust/TypeScript), so its silence there needs explaining (#79).
+    /// (Rust), so its silence there needs explaining (#79).
     all_noop_scanned: usize,
 }
 
@@ -53,7 +54,7 @@ pub fn run(ws: &Workspace, globs: &[String], all: bool, format: Format) -> Resul
     // Warnings go to stderr so JSON stdout stays machine-parseable.
     if all && result.all_noop_scanned > 0 {
         eprintln!(
-            "surf suggest: note: --all currently only proposes non-callable symbols for Python and Go files; Rust and TypeScript list callables only."
+            "surf suggest: note: --all currently only proposes non-callable symbols for Python, Go, and TypeScript files; Rust lists callables only."
         );
     }
     for g in &result.globs {
@@ -131,7 +132,7 @@ fn scan(
                 continue;
             };
             supported_matched += 1;
-            if !matches!(lang, Lang::Python | Lang::Go) {
+            if !matches!(lang, Lang::Python | Lang::Go | Lang::TypeScript) {
                 all_noop_scanned += 1;
             }
             for segments in public_symbols(&source, lang, surface) {
