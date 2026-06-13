@@ -63,6 +63,48 @@ pub fn resolve(source: &str, lang: Lang, anchor: &Anchor) -> Result<Span, Resolv
     })
 }
 
+/// On a failed TypeScript lookup, propose the `Class > method` chain a flat anchor was probably
+/// trying to spell (#68) — the chain syntax is otherwise undiscoverable. Handles the two spellings
+/// devs reach for first: `Class.method` (a dotted single segment) and a bare method name. Returns
+/// the suggested path without the file (e.g. `EffectiveTierService > getForUsers`), or `None` if
+/// nothing plausible resolves uniquely. Best-effort and advisory; never affects resolution.
+pub fn suggest_chain(source: &str, lang: Lang, anchor: &Anchor) -> Option<String> {
+    if lang.family() != Family::TypeScript {
+        return None;
+    }
+    // Only a single flat segment is ambiguous about the chain form; a multi-segment anchor already
+    // uses `>` and failed for some other reason.
+    let [seg] = anchor.segments.as_slice() else {
+        return None;
+    };
+    // Reuse the enumeration so the hint can only ever name a target `resolve` actually accepts.
+    let symbols = public_symbols(source, lang, Surface::All);
+
+    // `Class.method` — the dotted spelling every TS dev tries first. Suggest it if that exact chain
+    // is a real method.
+    if let Some((class, method)) = seg.name.rsplit_once('.') {
+        if symbols
+            .iter()
+            .any(|p| p.len() == 2 && p[0] == class && p[1] == method)
+        {
+            return Some(format!("{class} > {method}"));
+        }
+    }
+
+    // Bare method name — point at the (unique) class that defines it. If two classes share the
+    // name there's no unambiguous suggestion, so stay quiet rather than guess.
+    let mut classes: Vec<&str> = symbols
+        .iter()
+        .filter(|p| p.len() == 2 && p[1] == seg.name)
+        .map(|p| p[0].as_str())
+        .collect();
+    classes.dedup();
+    if let [class] = classes.as_slice() {
+        return Some(format!("{class} > {}", seg.name));
+    }
+    None
+}
+
 /// The node whose span/tokens represent a resolved symbol. Resolution keys off the inner
 /// definition node (it carries the `name`), but in tree-sitter-python a decorated
 /// function/class excludes its decorators — they live in the parent `decorated_definition`.
@@ -371,9 +413,10 @@ pub enum Surface {
     /// default.
     Callables,
     /// Everything anchorable: additionally top-level classes, module-level constants and type
-    /// aliases, and class attributes (Python), and top-level `const`/`var`/`type` declarations
-    /// (Go). Drives `suggest --all`, so a user can *discover* the non-callable targets `resolve`
-    /// already accepts. Rust and TypeScript enumerate the same callables as `Callables` for now.
+    /// aliases, and class attributes (Python), top-level `const`/`var`/`type` declarations (Go),
+    /// and exported classes and non-callable `const`/`let`/`var` (TypeScript). Drives
+    /// `suggest --all`, so a user can *discover* the non-callable targets `resolve` already
+    /// accepts. Rust enumerates the same callables as `Callables` for now.
     All,
 }
 
@@ -382,9 +425,11 @@ pub enum Surface {
 /// (`["Builder", "Set"]`). With [`Surface::All`] it also proposes the non-callable targets
 /// `resolve` accepts: for Python, top-level classes (`["C"]`), module-level constants/type
 /// aliases (`["CONST"]`), and class attributes (`["C", "attr"]`); for Go, exported top-level
-/// `const`/`var`/`type` declarations (`["MatchType"]`). With [`Surface::Callables`] those are
-/// withheld, keeping the default (and the lint nudge) to behaviour. Methods on Rust `impl` blocks
-/// and TS classes remain out of scope; only top-level fns are enumerated for them.
+/// `const`/`var`/`type` declarations (`["MatchType"]`); and for TypeScript, exported classes
+/// (`["Svc"]`) and non-callable `const`/`let`/`var` (`["TIER_MAP"]`). With [`Surface::Callables`]
+/// those are withheld, keeping the default (and the lint nudge) to behaviour — though TS class
+/// *methods* (`["Svc", "run"]`) are callables and enumerated in both modes, like Go's. Methods on
+/// Rust `impl` blocks remain out of scope; only top-level fns are enumerated for Rust.
 pub fn public_symbols(source: &str, lang: Lang, surface: Surface) -> Vec<Vec<String>> {
     let Some(tree) = parse_tree(source, lang) else {
         return Vec::new();
@@ -419,12 +464,10 @@ fn collect_public_symbol(
         }
         Family::TypeScript => {
             if node.kind() == "export_statement" {
-                let mut names = Vec::new();
                 let mut cursor = node.walk();
                 for c in node.named_children(&mut cursor) {
-                    ts_collect_export_fns(c, src, &mut names);
+                    collect_ts_symbol(c, src, surface, out);
                 }
-                out.extend(names.into_iter().map(|n| vec![n]));
             }
         }
         Family::Python => collect_python_symbol(node, src, None, surface, out),
@@ -593,17 +636,115 @@ fn ts_collect_export_fns(node: Node, src: &[u8], out: &mut Vec<String>) {
                 out.push(name.to_string());
             }
         }
-        // `export const f = () => {}` — only the function-valued declarators.
+        // `export const f = () => {}` — only the function-valued declarators. The callable
+        // filter lives here (not in `ts_def_name`) so the behaviour-only surface stays functions,
+        // while the resolver still anchors non-callable consts (#69).
         "lexical_declaration" | "variable_declaration" => {
             let mut cursor = node.walk();
             for c in node.named_children(&mut cursor) {
-                if let Some(name) = ts_def_name(c, src) {
-                    out.push(name);
+                if c.kind() == "variable_declarator" && ts_declarator_is_callable(c) {
+                    if let Some(name) = ts_declarator_name(c, src) {
+                        out.push(name.to_string());
+                    }
                 }
             }
         }
         _ => {}
     }
+}
+
+/// Public symbols an `export` statement contributes, mirroring the Python/Go enumeration.
+/// Exported functions (incl. `export const f = () => {}`) are callables -> `[f]`. An exported
+/// class contributes its public methods -> `[Class, method]` under [`Surface::Callables`] (like
+/// Go #29), and under [`Surface::All`] the class itself -> `[Class]` plus exported non-callable
+/// `const`/`let`/`var` -> `[NAME]` (like Python/Go #79). The constructor, `private`/`protected`,
+/// and `#`-private methods are withheld — they aren't the file's outward surface.
+fn collect_ts_symbol(node: Node, src: &[u8], surface: Surface, out: &mut Vec<Vec<String>>) {
+    match node.kind() {
+        "function_declaration" | "generator_function_declaration" | "function_signature" => {
+            if let Some(name) = field_text(node, "name", src) {
+                out.push(vec![name.to_string()]);
+            }
+        }
+        "class_declaration" | "abstract_class_declaration" => {
+            let Some(class) = field_text(node, "name", src) else {
+                return;
+            };
+            if surface == Surface::All {
+                out.push(vec![class.to_string()]);
+            }
+            let Some(body) = node.child_by_field_name("body") else {
+                return;
+            };
+            let mut cursor = body.walk();
+            for member in body.named_children(&mut cursor) {
+                if member.kind() == "method_definition" {
+                    if let Some(method) = ts_public_method_name(member, src) {
+                        out.push(vec![class.to_string(), method]);
+                    }
+                }
+            }
+        }
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            for c in node.named_children(&mut cursor) {
+                if c.kind() != "variable_declarator" {
+                    continue;
+                }
+                let Some(name) = ts_declarator_name(c, src) else {
+                    continue;
+                };
+                // Function-valued declarators are callables (always); non-callable consts are
+                // anchorable but withheld unless `--all`, matching Python/Go non-callables (#69).
+                if ts_declarator_is_callable(c) || surface == Surface::All {
+                    out.push(vec![name.to_string()]);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A `variable_declarator`'s name, only when it's a plain identifier — destructuring patterns
+/// (`const { a, b } = ...`) have no single anchorable name.
+fn ts_declarator_name<'a>(declarator: Node, src: &'a [u8]) -> Option<&'a str> {
+    let name = declarator.child_by_field_name("name")?;
+    (name.kind() == "identifier")
+        .then(|| name.utf8_text(src).ok())
+        .flatten()
+}
+
+/// True when a declarator binds a function value (`= () => {}`, `= function() {}`, `= wrap(...)`).
+fn ts_declarator_is_callable(declarator: Node) -> bool {
+    declarator.child_by_field_name("value").is_some_and(|v| {
+        matches!(
+            v.kind(),
+            "arrow_function"
+                | "function"
+                | "function_expression"
+                | "generator_function"
+                | "call_expression"
+        )
+    })
+}
+
+/// Public method name from a `method_definition`, or `None` for the constructor, `private`/
+/// `protected` methods, and `#`-private names — none are part of the file's outward surface.
+fn ts_public_method_name(node: Node, src: &[u8]) -> Option<String> {
+    let name_node = node.child_by_field_name("name")?;
+    if name_node.kind() == "private_property_identifier" {
+        return None;
+    }
+    let name = name_node.utf8_text(src).ok()?;
+    if name == "constructor" {
+        return None;
+    }
+    let mut cursor = node.walk();
+    let restricted = node.children(&mut cursor).any(|c| {
+        c.kind() == "accessibility_modifier"
+            && matches!(c.utf8_text(src), Ok("private") | Ok("protected"))
+    });
+    (!restricted).then(|| name.to_string())
 }
 
 fn collect_python_fn(node: Node, src: &[u8], out: &mut Vec<String>) {
@@ -696,19 +837,11 @@ fn ts_def_name(node: Node, src: &[u8]) -> Option<String> {
         | "method_definition"
         | "method_signature"
         | "abstract_method_signature" => field_text(node, "name", src).map(str::to_string),
-        "variable_declarator" => {
-            let value = node.child_by_field_name("value")?;
-            matches!(
-                value.kind(),
-                "arrow_function"
-                    | "function"
-                    | "function_expression"
-                    | "generator_function"
-                    | "call_expression"
-            )
-            .then(|| field_text(node, "name", src).map(str::to_string))
-            .flatten()
-        }
+        // Any named declarator is anchorable: `export const f = () => {}` (callable) and
+        // `export const TIER_MAP = { ... }` (non-callable object/array/scalar) alike (#69). The
+        // callable distinction is enforced only where the *callables* surface is enumerated
+        // (`ts_collect_export_fns`), not here on the resolution path.
+        "variable_declarator" => ts_declarator_name(node, src).map(str::to_string),
         _ => None,
     }
 }
@@ -911,19 +1044,111 @@ class TopLevelClass:
     }
 
     #[test]
-    fn all_is_callables_only_for_rust_and_ts() {
-        // The non-callable extension covers Python and Go; --all must not change Rust/TS
-        // output, so a Rust repo's lint nudge and suggest stay identical across modes.
+    fn all_is_callables_only_for_rust() {
+        // Rust is the only language whose non-callable surface is still withheld under --all, so
+        // a Rust repo's lint nudge and suggest stay identical across modes.
         let rust = "pub fn a() {}\npub struct S;\npub const K: u8 = 1;\n";
         assert_eq!(
             public_symbols(rust, Lang::Rust, Surface::All),
             public_symbols(rust, Lang::Rust, Surface::Callables)
         );
-        let ts = "export function a() {}\nexport const K = 1;\nexport interface I {}\n";
+    }
+
+    #[test]
+    fn ts_symbols_include_class_methods() {
+        // Exported class methods are callables — enumerated in both modes (like Go #29). The
+        // constructor, `private`/`protected`, and `#`-private methods are withheld; the class
+        // itself and a top-level fn round out the callables surface.
+        let src = "\
+export function top() {}
+export class Svc {
+  constructor() {}
+  run() {}
+  private secret() {}
+  protected helper() {}
+  #hidden() {}
+  get computed() { return 1; }
+}
+class Internal { exposed() {} }
+";
         assert_eq!(
-            public_symbols(ts, Lang::TypeScript, Surface::All),
-            public_symbols(ts, Lang::TypeScript, Surface::Callables)
+            public_symbols(src, Lang::TypeScript, Surface::Callables),
+            vec![
+                vec!["Svc".to_string(), "computed".to_string()],
+                vec!["Svc".to_string(), "run".to_string()],
+                vec!["top".to_string()],
+            ]
         );
+    }
+
+    #[test]
+    fn ts_all_adds_classes_and_non_callable_consts() {
+        // --all additionally proposes the exported class itself and non-callable const/let/var
+        // (object/array/scalar), matching Python/Go non-callables (#69/#70). Callable consts
+        // (`= () => {}`, `= wrap(...)`) stay in both modes; destructuring binds no single name.
+        let src = "\
+export function fn() {}
+export const wrapped = makeService();
+export const arrow = () => {};
+export const TIER_MAP = { a: 1 };
+export const NAMES = [\"x\"];
+export const MAX = 5;
+export const { a, b } = obj;
+export class Svc {
+  run() {}
+}
+export interface I {}
+";
+        assert_eq!(
+            public_symbols(src, Lang::TypeScript, Surface::Callables),
+            vec![
+                vec!["Svc".to_string(), "run".to_string()],
+                vec!["arrow".to_string()],
+                vec!["fn".to_string()],
+                vec!["wrapped".to_string()],
+            ]
+        );
+        assert_eq!(
+            public_symbols(src, Lang::TypeScript, Surface::All),
+            vec![
+                vec!["MAX".to_string()],
+                vec!["NAMES".to_string()],
+                vec!["Svc".to_string()],
+                vec!["Svc".to_string(), "run".to_string()],
+                vec!["TIER_MAP".to_string()],
+                vec!["arrow".to_string()],
+                vec!["fn".to_string()],
+                vec!["wrapped".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn ts_exported_const_object_is_anchorable() {
+        // #69: a non-callable exported const resolves (was NotFound — only callable declarators
+        // were anchorable).
+        let src = "export const TIER_MAP = {\n  a: 1,\n  b: 2,\n};\n";
+        let anchor = crate::parse_anchor("f.ts > TIER_MAP").unwrap();
+        assert!(resolve(src, Lang::TypeScript, &anchor).is_ok());
+    }
+
+    #[test]
+    fn ts_suggest_chain_hints_class_method() {
+        // #68: both the dotted spelling and the bare method name point at the chain form.
+        let src = "export class Svc {\n  getForUsers() {}\n}\n";
+        let dotted = crate::parse_anchor("f.ts > Svc.getForUsers").unwrap();
+        assert_eq!(
+            suggest_chain(src, Lang::TypeScript, &dotted),
+            Some("Svc > getForUsers".to_string())
+        );
+        let bare = crate::parse_anchor("f.ts > getForUsers").unwrap();
+        assert_eq!(
+            suggest_chain(src, Lang::TypeScript, &bare),
+            Some("Svc > getForUsers".to_string())
+        );
+        // No hint when the method name is genuinely absent.
+        let missing = crate::parse_anchor("f.ts > nope").unwrap();
+        assert_eq!(suggest_chain(src, Lang::TypeScript, &missing), None);
     }
 
     #[test]

@@ -7,6 +7,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- TypeScript `suggest` now enumerates exported class methods (`Class > method`) by default —
+  matching Go (#29) and Python — so a class-heavy file no longer reports "no unanchored public
+  symbols found." `suggest --all` additionally proposes the exported class itself and
+  non-callable `const`/`let`/`var` declarations (object/array/scalar). The "Rust/TypeScript
+  `--all` changes nothing" note now fires only for Rust (#70).
+- A failed flat TypeScript anchor that looks like a method now hints the chain spelling:
+  `EffectiveTierService.getForUsers` or a bare `getForUsers` reports
+  ``did you mean `EffectiveTierService > getForUsers`?`` — the `Class > method` syntax was
+  previously undiscoverable (#68).
+
+### Fixed
+- TypeScript exported non-callable `const`/`let`/`var` (`export const TIER_MAP = { ... }`) is
+  now anchorable — previously only function-valued declarators resolved, so the const maps most
+  prone to drift had no anchor target. Mirrors #28's Python fix (#69).
+
 ## [0.6.2] - 2026-06-12
 
 ### Added

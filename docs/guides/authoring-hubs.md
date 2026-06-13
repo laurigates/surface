@@ -58,10 +58,13 @@ src/service.ts > TokenService > rotate
 
 - **One segment** points at a top-level symbol: `src/m.rs > parse_anchor`.
 - **Nested segments** walk into scopes: a type and its `impl`/methods share a name, so
-  `Type` alone may be ambiguous while `Type > method` is unique.
+  `Type` alone may be ambiguous while `Type > method` is unique. Methods are addressed with
+  `>` segments, **not** a dot — write `TokenService > rotate`, not `TokenService.rotate`
+  (the same applies to a TS/JS class method like `EffectiveTierService > getForUsers`).
 - **Non-callables** anchor too, not just functions: in Python, module constants, type aliases
   (`X = Literal[...]`, `type X = ...`), and class attributes (`Class > attr`); in Rust/Go,
-  `const`/`static`/`var` items. Anchor the value whose drift the sentence is about.
+  `const`/`static`/`var` items; in TS/JS, exported `const`/`let`/`var` (`TIER_MAP`). Anchor the
+  value whose drift the sentence is about.
 - **`@N`** disambiguates genuine name collisions (1-based), e.g. two overloads:
   `src/api.ts > handler@2`. Python `@overload` sets are the exception: consecutive stubs plus
   their implementation resolve as *one* symbol, so the bare name works and the hash covers

@@ -330,7 +330,16 @@ fn lint_site(
                     Ok(None) => block(format!("`{segment}` not found and no current symbol matches the stored hash — the claim points at nothing")),
                     Err(e) => block(format!("`{segment}` not found; rename check failed: {e}")),
                 },
-                None => block(format!("`{segment}` not found (claim has no stored hash to match against)")),
+                None => {
+                    // First-time authoring: a brand-new anchor that doesn't resolve. If it looks
+                    // like the (undiscoverable) `Class > method` chain spelled flat, hint it (#68).
+                    let hint = surf_core::suggest_chain(&source, lang, &anchor)
+                        .map(|chain| format!(" — did you mean `{chain}`?"))
+                        .unwrap_or_default();
+                    block(format!(
+                        "`{segment}` not found (claim has no stored hash to match against){hint}"
+                    ))
+                }
             }
             unresolved(false)
         }

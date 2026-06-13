@@ -7,7 +7,7 @@ anchors:
       as does a file that git reports has moved. Block-level findings set a non-zero exit;
       warnings alone keep exit 0.
     at: surf-cli/src/lint.rs > lint_site
-    hash: bd4d37e231b6
+    hash: 1ec63fccf77f
   - claim: >
       Advisory granularity guidance (§8), never blocking: lint_under_coverage flags public
       symbols — top-level functions and methods — in an already-anchored file that no claim
