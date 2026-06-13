@@ -21,6 +21,16 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  # Advisory scan of the dependency tree (RustSec). Pairs with dependabot.yml,
+  # which proposes the bumps; this fails the PR if a known advisory is present.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   # Tests + dogfood on every OS we ship a release binary for (release.yml uses macos-14
   # for aarch64-apple-darwin), so Darwin path/tree-sitter behavior is exercised pre-release.
   test:
