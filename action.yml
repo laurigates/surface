@@ -29,7 +29,10 @@ runs:
       env:
         SURF_VERSION: ${{ inputs.version }}
         SURF_INSTALL_DIR: ${{ runner.temp }}/surf-bin
-      run: curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/Connorrmcd6/surface/main/install.sh | sh
+      # Run the installer bundled at the *pinned* action ref rather than the mutable
+      # main branch, so a SHA-pinned `uses:` also pins the installer script
+      # (defense-in-depth; install.sh already checksum-verifies the download).
+      run: sh "${{ github.action_path }}/install.sh"
     - name: Run surf
       shell: bash
       working-directory: ${{ inputs.working-directory }}
