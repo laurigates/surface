@@ -756,14 +756,30 @@ mod tests {
 
         // Initialize the repo at the parent, not the workspace.
         git(repo, &["init", "-q"]);
-        git(repo, &["-c", "user.email=t@t", "-c", "user.name=t", "add", "."]);
         git(
             repo,
-            &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "v1"],
+            &["-c", "user.email=t@t", "-c", "user.name=t", "add", "."],
+        );
+        git(
+            repo,
+            &[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "v1",
+            ],
         );
 
         // Diverge the anchored span in the working tree.
-        write(&proj, "src/m.rs", "pub fn add(a: i64, b: i64) -> i64 { a - b }\n");
+        write(
+            &proj,
+            "src/m.rs",
+            "pub fn add(a: i64, b: i64) -> i64 { a - b }\n",
+        );
 
         let ws = ws_at(proj.clone());
         let scoped = check_workspace(&ws, Some("HEAD"), &[]).unwrap().0;
