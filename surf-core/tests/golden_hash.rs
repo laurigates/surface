@@ -33,8 +33,12 @@ fn golden_hashes_are_stable_per_language() {
     let rust = "pub fn add(a: i64, b: i64) -> i64 {\n    // sum them\n    a + b\n}\n";
     assert_eq!(h(rust, Lang::Rust, "x.rs > add"), "f1075e760a17");
 
-    let ts = "export class Svc {\n  rotate(tok: string): string {\n    return tok + tok; // c\n  }\n}\n";
-    assert_eq!(h(ts, Lang::TypeScript, "x.ts > Svc > rotate"), "afa4514b5c89");
+    let ts =
+        "export class Svc {\n  rotate(tok: string): string {\n    return tok + tok; // c\n  }\n}\n";
+    assert_eq!(
+        h(ts, Lang::TypeScript, "x.ts > Svc > rotate"),
+        "afa4514b5c89"
+    );
 
     let tsx = "export function App(): JSX.Element {\n  return <div>{1 + 2}</div>;\n}\n";
     assert_eq!(h(tsx, Lang::Tsx, "x.tsx > App"), "97e0de58725d");
@@ -56,7 +60,11 @@ fn cosmetic_edits_do_not_change_the_hash() {
 
     // Whitespace collapsed and the comment removed: pure reformatting.
     assert_eq!(
-        h("pub fn add(a:i64,b:i64)->i64{a+b}\n", Lang::Rust, "x.rs > add"),
+        h(
+            "pub fn add(a:i64,b:i64)->i64{a+b}\n",
+            Lang::Rust,
+            "x.rs > add"
+        ),
         canonical,
         "reformatting must not move the hash",
     );
