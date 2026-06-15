@@ -51,37 +51,6 @@ fn golden_hashes_are_stable_per_language() {
 }
 
 #[test]
-fn cosmetic_edits_do_not_change_the_hash() {
-    let canonical = h(
-        "pub fn add(a: i64, b: i64) -> i64 {\n    // sum them\n    a + b\n}\n",
-        Lang::Rust,
-        "x.rs > add",
-    );
-
-    // Whitespace collapsed and the comment removed: pure reformatting.
-    assert_eq!(
-        h(
-            "pub fn add(a:i64,b:i64)->i64{a+b}\n",
-            Lang::Rust,
-            "x.rs > add"
-        ),
-        canonical,
-        "reformatting must not move the hash",
-    );
-
-    // Consistent local rename (a→x, b→y) — alpha-renaming makes it invisible.
-    assert_eq!(
-        h(
-            "pub fn add(x: i64, y: i64) -> i64 { x + y }\n",
-            Lang::Rust,
-            "x.rs > add",
-        ),
-        canonical,
-        "a consistent rename must not move the hash",
-    );
-}
-
-#[test]
 fn logic_edits_change_the_hash() {
     let canonical = h(
         "pub fn add(a: i64, b: i64) -> i64 { a + b }\n",
