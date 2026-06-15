@@ -154,6 +154,13 @@ Full docs at **[surface.gradientdev.xyz](https://surface.gradientdev.xyz)** (sou
 Release history is in [`CHANGELOG.md`](CHANGELOG.md). AI agents working in this repo: see
 [`AGENTS.md`](AGENTS.md).
 
+## Benchmark
+
+The agent-impact benchmark — measuring how much documentation accuracy changes an agent's task
+performance — lives in its own repo: **[Connorrmcd6/surface-bench](https://github.com/Connorrmcd6/surface-bench)**.
+It consumes the `surf` binary's output but has no inbound dependency on this core. (It previously
+lived under `bench/` here.)
+
 ---
 
 <sub>The naming isn't decoration: the *gradient* of a field is everywhere perpendicular to its level *surfaces* — the direction of change, and the thing the change is measured against. Surface reports **divergence** between what your docs claim and what your code does.</sub>
